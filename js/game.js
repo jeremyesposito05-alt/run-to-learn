@@ -31,7 +31,7 @@ const RULES = {
 const BLASON_AT = [3, 7, 12];
 // Écran-question : descente vers l'arrêt, affichage du résultat, reprise (en images de 1/60 s)
 const FOCUS = { in: 18, resultOk: 50, resultKo: 130, resultWhy: 240, out: 14, lockInput: 14 };
-const FOCUS_BOX = i => ({ x: 70, y: 66 + i * 40, w: 244, h: 32 });
+const FOCUS_BOX = i => ({ x: Math.round((VIEW_W - 244) / 2), y: 66 + i * 40, w: 244, h: 32 });
 
 const Game = {
   state: 'menu', opts: null, level: LEVELS.n1, session: null,

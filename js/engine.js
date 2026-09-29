@@ -3,7 +3,8 @@
    Run to Learn — moteur, couche 1 : constantes, outils, entrées, boucle, effets.
    Aucune dépendance. Fonctionne en ouvrant index.html par double-clic.
    ══════════════════════════════════════════════════════════════════════════ */
-const VIEW_W = 384, VIEW_H = 216;       // résolution interne (agrandie sans lissage)
+// résolution interne (agrandie sans lissage) : 216 px de haut ; la largeur s'adapte à l'écran (384 en 16:9, jusqu'à 468 sur un iPhone)
+let VIEW_W = 384; const VIEW_H = 216;
 const TILE = 16, ROWS = 14;             // une case = 16 px ; le monde fait 14 cases de haut
 const WORLD_H = ROWS * TILE;
 const STEP = 1000 / 60;                 // la logique tourne à 60 Hz fixes, quel que soit l'écran
@@ -38,6 +39,15 @@ const Input = {
     target.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') this.hover = toLow(e); });
     target.addEventListener('pointerleave', () => this.hover = null);
     target.addEventListener('pointerdown', e => this.clicks.push(toLow(e)));
+    // iPhone : deux touchers rapprochés déclenchaient la sélection de texte, la loupe et le menu copier-coller.
+    // On les bloque sur la zone de jeu (les boutons des menus restent normaux).
+    const stop = e => { if (!(e.target.closest && e.target.closest('button'))) e.preventDefault(); };
+    target.addEventListener('touchstart', stop, { passive: false });
+    target.addEventListener('touchend', stop, { passive: false });
+    addEventListener('dblclick', e => e.preventDefault());
+    addEventListener('selectstart', e => e.preventDefault());
+    addEventListener('contextmenu', e => e.preventDefault());
+    addEventListener('gesturestart', e => e.preventDefault());
     addEventListener('keyup', e => {
       if (JUMP.includes(e.code)) this.keyHeld = false;
       else if (e.code === 'ArrowDown' || e.code === 'KeyS') this.keyDown = false;

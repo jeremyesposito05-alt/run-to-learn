@@ -2,11 +2,22 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<title>Run to Learn — moteur</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Run to Learn">
+<meta name="theme-color" content="#0b0f26">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-512.png">
+<link rel="icon" href="icon-512.png">
+<title>Run to Learn!</title>
 <style>
 :root{--navy:#1A2047;--mid:#14387F;--bright:#0087CC;--gold:#F3BE31;--orange:#CA5007;--grey:#9C9895;--pale:#E7E9EF}
 *{box-sizing:border-box}
+/* iPhone : pas de sélection de texte, pas de loupe, pas de surbrillance au toucher */
+html,body,canvas,.panel{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+html,body{overscroll-behavior:none;touch-action:manipulation}
 html,body{margin:0;height:100%;background:#0b0f26;color:var(--pale);font-family:Calibri,'Segoe UI',sans-serif;overflow:hidden}
 body{display:flex;align-items:center;justify-content:center}
 #game{display:block;image-rendering:pixelated;touch-action:none;background:#000}

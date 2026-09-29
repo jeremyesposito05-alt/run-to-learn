@@ -1,0 +1,13 @@
+{
+  "name": "Run to Learn!",
+  "short_name": "Run to Learn",
+  "description": "Jeu de course éducatif du Collège Alpin Beau Soleil",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b0f26",
+  "theme_color": "#0b0f26",
+  "lang": "fr",
+  "icons": [{ "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }]
+}

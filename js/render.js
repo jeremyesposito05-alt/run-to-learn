@@ -15,19 +15,29 @@ const Render = {
     this.out = canvas; this.o = canvas.getContext('2d');
     this.low = document.createElement('canvas'); this.low.width = VIEW_W; this.low.height = VIEW_H;
     this.c = this.low.getContext('2d');
-    addEventListener('resize', () => this.fit()); this.fit();
+    // sonde pour lire les marges de sécurité de l'écran (encoche de l'iPhone), en pixels CSS
+    this.probe = document.createElement('div');
+    this.probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)';
+    document.body.appendChild(this.probe);
+    this.padL = 0; this.padR = 0;
+    addEventListener('resize', () => this.fit()); addEventListener('orientationchange', () => setTimeout(() => this.fit(), 250)); this.fit();
   },
   fit() {
-    const aw = innerWidth, ah = innerHeight, dpr = devicePixelRatio || 1;
+    const aw = innerWidth || 384, ah = innerHeight || 216, dpr = devicePixelRatio || 1;   // fenêtre de taille nulle (rotation, onglet caché) : valeurs de secours
+    // la largeur du monde suit la forme de l'écran : un iPhone voit plus loin devant lui au lieu d'avoir des bandes noires
+    const w = Math.max(384, Math.min(468, Math.round(VIEW_H * aw / ah / 2) * 2)) || 384;
+    if (w !== VIEW_W) { VIEW_W = w; this.low.width = VIEW_W; this.low.height = VIEW_H; this.bg = {}; }
     // grand écran : agrandissement par multiples entiers (pixels parfaits) ; petit écran (téléphone) : on remplit l'écran
     const fitS = Math.min(aw / VIEW_W, ah / VIEW_H), s = fitS >= 3 ? Math.floor(fitS) : fitS;
+    const cs = getComputedStyle(this.probe);   // marges de l'encoche, converties en pixels du jeu
+    this.padL = Math.ceil((parseFloat(cs.paddingLeft) || 0) / s); this.padR = Math.ceil((parseFloat(cs.paddingRight) || 0) / s);
     this.S = s; this.B = Math.max(1, Math.round(s * dpr));
     this.out.width = VIEW_W * this.B; this.out.height = VIEW_H * this.B;
     const cssS = fitS >= 3 ? this.B / dpr : s;           // taille affichée : jamais plus grande que l'écran
     this.out.style.width = Math.floor(VIEW_W * cssS) + 'px'; this.out.style.height = Math.floor(VIEW_H * cssS) + 'px';
   },
   // texte en file d'attente, coordonnées dans l'espace 384×216
-  text(s, x, y, o = {}) { this.texts.push({ s, x, y, size: o.size || 8, color: o.color || '#fff', align: o.align || 'center', stroke: o.stroke ?? '#10143a', maxW: o.maxW || 0, weight: o.weight || 'bold' }); },
+  text(s, x, y, o = {}) { x += this.tdx || 0; this.texts.push({ s, x, y, size: o.size || 8, color: o.color || '#fff', align: o.align || 'center', stroke: o.stroke ?? '#10143a', maxW: o.maxW || 0, weight: o.weight || 'bold' }); },
 
   /* ─── décors précalculés, un jeu par biome ─── */
   background(b) {
@@ -187,14 +197,15 @@ const Render = {
     c.globalAlpha = .62 * a; c.fillStyle = '#060a20'; c.fillRect(0, 0, VIEW_W, VIEW_H); c.globalAlpha = 1;
     if (a < .5) return;
     c.globalAlpha = a;
-    c.fillStyle = '#1A2047'; c.fillRect(56, 10, 272, 196);
-    c.fillStyle = '#F3BE31'; c.fillRect(56, 10, 272, 1); c.fillRect(56, 205, 272, 1);
+    const cx0 = Math.round((VIEW_W - 272) / 2), bx0 = cx0 + 14;   // carte centrée, quelle que soit la largeur de l'écran
+    c.fillStyle = '#1A2047'; c.fillRect(cx0, 10, 272, 196);
+    c.fillStyle = '#F3BE31'; c.fillRect(cx0, 10, 272, 1); c.fillRect(cx0, 205, 272, 1);
     this.text(f.it.q, VIEW_W / 2, 34, { size: f.it.q.length > 34 ? 9 : 11, maxW: 256 });
     // minuteur (absent au niveau 1)
     if (f.timeMax) {
       const r = U.clamp(f.time / f.timeMax, 0, 1), col = r > .5 ? '#3fcf7a' : r > .25 ? '#F3BE31' : '#ff5a5a';
-      c.fillStyle = '#10143a'; c.fillRect(70, 50, 244, 5); c.fillStyle = col; c.fillRect(70, 50, Math.round(244 * r), 5);
-      if (f.phase === 'choose') this.text(Math.ceil(f.time / 60) + ' s', 320, 52.5, { size: 6.5, align: 'left', color: col, stroke: '' });
+      c.fillStyle = '#10143a'; c.fillRect(bx0, 50, 244, 5); c.fillStyle = col; c.fillRect(bx0, 50, Math.round(244 * r), 5);
+      if (f.phase === 'choose') this.text(Math.ceil(f.time / 60) + ' s', bx0 + 250, 52.5, { size: 6.5, align: 'left', color: col, stroke: '' });
     }
     const res = f.phase === 'result' || f.phase === 'out';
     for (let i = 0; i < 3; i++) {
@@ -212,13 +223,15 @@ const Render = {
     else {                                                  // la correction, puis la stratégie qui y mène
       this.text((f.timeout ? 'Temps écoulé ! ' : '') + 'La bonne réponse : ' + f.it.a, VIEW_W / 2, f.it.why ? 186 : 196, { size: 8.5, maxW: 260, color: '#ffb0b0' });
       if (f.it.why) this.text(f.it.why, VIEW_W / 2, 198, { size: 6.5, maxW: 262, color: '#fff4c8', weight: 'normal', stroke: '' });
-      if (f.t > 40) this.text('touche pour continuer', 322, 16, { size: 5, align: 'right', color: '#6c7096', weight: 'normal', stroke: '' });
+      if (f.t > 40) this.text('touche pour continuer', cx0 + 266, 16, { size: 5, align: 'right', color: '#6c7096', weight: 'normal', stroke: '' });
     }
     c.globalAlpha = 1;
   },
   hud() {
     const c = this.c, G = Game;
     if (G.state === 'menu' || G.demo) return;
+    // jauges de gauche et de droite décalées hors de l'encoche de l'iPhone
+    c.save(); c.translate(this.padL, 0); this.tdx = this.padL;
     // endurance
     const e = U.clamp(G.energy / 100, 0, 1), col = e > .5 ? '#3fcf7a' : e > .25 ? '#F3BE31' : '#ff5a5a';
     c.fillStyle = '#10143a'; c.fillRect(7, 7, 94, 9); c.fillStyle = '#2a2f55'; c.fillRect(8, 8, 92, 7);
@@ -232,17 +245,20 @@ const Render = {
       c.fillStyle = '#10143a'; c.fillRect(7, 38, 94, 5); c.fillStyle = (G.frame >> 2) % 2 ? '#F3BE31' : '#fff2a8'; c.fillRect(8, 39, Math.round(92 * G.boost / RULES.invincibleTime), 3);
       this.text('Invincible !', 54, 49, { size: 6.5, color: '#F3BE31' });
     }
+    c.restore(); this.tdx = 0;
     // progression dans le biome : 8 bonnes réponses pour passer au suivant
     const n = RULES.biomeGoal, bw = n * 9 - 2, bx = Math.round((VIEW_W - bw) / 2);
     for (let i = 0; i < n; i++) { c.fillStyle = '#10143a'; c.fillRect(bx + i * 9 - 1, 7, 9, 7); c.fillStyle = i < G.biomeRight ? '#8ff0b8' : '#2a2f55'; c.fillRect(bx + i * 9, 8, 7, 5); }
-    this.text(G.biome.short + ' · ' + Math.min(G.biomeRight, n) + ' / ' + n, VIEW_W / 2, 20, { size: 5.5, color: '#b9c3e8', weight: 'normal', stroke: '' });
+    if (!G.focus) this.text(G.biome.short + ' · ' + Math.min(G.biomeRight, n) + ' / ' + n, VIEW_W / 2, 20, { size: 5.5, color: '#b9c3e8', weight: 'normal', stroke: '' });
     // série vers l'invincibilité : 5 cases
+    c.save(); c.translate(-this.padR, 0); this.tdx = -this.padR;
     for (let i = 0; i < RULES.invincibleEvery; i++) {
       const on = i < G.streak % RULES.invincibleEvery || (G.boost > 0 && G.streak > 0 && G.streak % RULES.invincibleEvery === 0);
       c.fillStyle = '#10143a'; c.fillRect(VIEW_W - 70 + i * 13, 19, 11, 7); c.fillStyle = on ? '#F3BE31' : '#2a2f55'; c.fillRect(VIEW_W - 69 + i * 13, 20, 9, 5);
     }
     this.text('Série', VIEW_W - 74, 22.5, { align: 'right', size: 5.5, color: '#b9c3e8', weight: 'normal', stroke: '' });
     this.text(String(G.score).padStart(6, '0'), VIEW_W - 8, 11, { align: 'right', size: 9, color: '#fff4c8' });
+    c.restore(); this.tdx = 0;
     if (G.focus) { this.focusCard(); return; }
     const b = G.banner;
     if (b && b.t > 0) { const a = Math.min(1, b.t / 12); c.globalAlpha = .8 * a; c.fillStyle = '#10143a'; c.fillRect(0, 44, VIEW_W, 22); c.globalAlpha = 1; this.text(b.text, VIEW_W / 2, 55, { size: 10, maxW: 370, color: b.color }); }
