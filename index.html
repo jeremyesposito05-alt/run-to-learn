@@ -70,6 +70,22 @@ body.playing #btn-pause{display:block}
 .swatch{width:22px;height:22px;border-radius:4px;border:3px solid}
 #carnet-mastery{width:min(620px,100%);text-align:left}
 .miss em{display:block;font-style:normal;color:#9aa3c8;font-size:13px}
+/* profils et thèmes par année */
+.player{background:transparent;border:1px solid #4a5390;font-size:16px;padding:8px 14px}.player b{font-weight:normal;color:var(--gold)}.player small{display:inline;margin-left:10px;color:#9aa3c8}
+#pf-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;width:min(620px,100%)}
+.pf-card{display:grid;grid-template-columns:1fr auto;gap:6px;background:rgba(20,56,127,.45);border-radius:12px;padding:8px}.pf-card.on{outline:2px solid var(--gold)}
+.pf-play{grid-column:1/-1;text-align:left}.pf-play b{display:block;font-weight:normal;font-size:19px}
+.pf-card select,.pf-form select,.pf-form input{font:inherit;font-size:15px;background:#0f1640;color:#fff;border:1px solid #4a5390;border-radius:8px;padding:8px}
+.pf-del{font-size:13px;padding:6px 10px}
+.pf-form{display:flex;flex-direction:column;gap:10px;width:min(460px,100%);background:rgba(20,56,127,.3);border-radius:12px;padding:14px;text-align:left}
+.pf-form label{display:flex;flex-direction:column;gap:4px;color:#b9c3e8;font-size:14px}
+input,select{-webkit-user-select:auto;user-select:auto}
+#level-list{display:flex;flex-direction:column;gap:12px;width:min(620px,100%)}
+#level-list .grid{width:100%}
+#level-list details{background:rgba(20,56,127,.25);border-radius:10px;padding:8px 10px;text-align:left}
+#level-list summary{cursor:pointer;color:var(--gold);padding:4px}
+#level-list details .grid{margin-top:8px}
+#modes button.rec{outline:2px solid var(--gold)}#modes button.rec small::after{content:" · conseillé pour ton âge";color:var(--gold)}
 </style>
 </head>
 <body>
@@ -80,6 +96,7 @@ body.playing #btn-pause{display:block}
 <section class="panel" id="title" hidden>
   <h1>Run to <span>Learn!</span></h1>
   <p class="sub">Attrape les bonus question et réponds juste pour garder ton endurance !</p>
+  <button id="btn-player" class="player"></button>
   <div class="grid" id="subjects"></div>
   <button id="btn-carnet" class="ghost">Carnet d'explorateur · biomes, blasons, tenues</button>
   <p class="keys"><b>Espace</b>, <b>↑</b>, clic ou manette : sauter (maintenir = plus haut, deux fois = double saut) ·
@@ -87,13 +104,25 @@ body.playing #btn-pause{display:block}
 </section>
 <section class="panel" id="levels" hidden>
   <h2 id="level-title"></h2>
+  <p class="sub" id="level-sub"></p>
   <div class="grid" id="level-list"></div>
   <button class="ghost" data-go="title">← Retour</button>
 </section>
 <section class="panel" id="mode" hidden>
   <h2>Quel niveau ?</h2>
+  <p class="sub" id="mode-theme"></p>
   <div class="grid" id="modes" style="grid-template-columns:repeat(3,minmax(0,1fr))"></div>
-  <button class="ghost" data-go="levels">← Retour</button>
+  <button class="ghost" data-go="levels">← Retour aux thèmes</button>
+</section>
+<section class="panel" id="profils" hidden>
+  <h2 id="pf-title">Qui joue ?</h2>
+  <div id="pf-list"></div>
+  <form id="pf-form" class="pf-form" autocomplete="off">
+    <h3>Nouveau joueur</h3>
+    <label for="pf-name">Prénom<input id="pf-name" maxlength="16" placeholder="Ton prénom"></label>
+    <label for="pf-year">Année scolaire<select id="pf-year"></select></label>
+    <button type="submit" class="big">Créer et jouer</button>
+  </form>
 </section>
 <section class="panel" id="carnet" hidden>
   <h2>Carnet d'explorateur</h2>
@@ -116,8 +145,11 @@ body.playing #btn-pause{display:block}
 </section>
 
 <script src="js/engine.js"></script>
+<script src="js/annees.js"></script>
+<script src="js/banques.js"></script>
 <script src="js/content.js"></script>
 <script src="js/carnet.js"></script>
+<script src="js/profils.js"></script>
 <script src="js/world.js"></script>
 <script src="js/biomes.js"></script>
 <script src="js/entities.js"></script>

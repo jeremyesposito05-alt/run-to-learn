@@ -15,9 +15,10 @@ const SKINS = [
 ];
 
 const Carnet = {
-  KEY: 'rtl-carnet-v1',
-  data: { biomes: {}, skin: 'base', maxStage: 0, runs: 0 },
-  load() {
+  KEY: "rtl-carnet-v2:invite",
+  data: { biomes: {}, skin: "base", maxStage: 0, runs: 0 },
+  use(profileId) {   // un carnet par profil
+    this.KEY = "rtl-carnet-v2:" + profileId; this.data = { biomes: {}, skin: "base", maxStage: 0, runs: 0 };
     try { const d = JSON.parse(localStorage.getItem(this.KEY)); if (d && d.biomes) this.data = Object.assign(this.data, d); } catch (e) { }
   },
   save() { if (!Game.persist) return; try { localStorage.setItem(this.KEY, JSON.stringify(this.data)); } catch (e) { } },
@@ -39,4 +40,3 @@ const Carnet = {
   skin() { const s = SKINS.find(k => k.id === this.data.skin); return s && this.unlocked(s) ? s : SKINS[0]; },
   endRun(stage) { if (!Game.persist) return; this.data.runs++; this.data.maxStage = Math.max(this.data.maxStage, stage); this.save(); },
 };
-Carnet.load();

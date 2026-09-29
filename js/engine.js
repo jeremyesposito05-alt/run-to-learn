@@ -31,7 +31,9 @@ const Input = {
   init(target) {
     const JUMP = ['Space', 'ArrowUp', 'KeyW', 'KeyZ'];
     const toLow = e => { const r = target.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * VIEW_W, y: (e.clientY - r.top) / r.height * VIEW_H }; };
+    const typing = e => e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);   // on tape son prénom : le jeu n'écoute pas
     addEventListener('keydown', e => {
+      if (typing(e)) return;
       if (JUMP.includes(e.code)) { e.preventDefault(); if (!e.repeat) { this.presses++; } this.keyHeld = true; }
       else if (e.code === 'ArrowDown' || e.code === 'KeyS') { e.preventDefault(); this.keyDown = true; }
       if (!e.repeat && this.onKey) this.onKey(e.code);
@@ -45,10 +47,11 @@ const Input = {
     target.addEventListener('touchstart', stop, { passive: false });
     target.addEventListener('touchend', stop, { passive: false });
     addEventListener('dblclick', e => e.preventDefault());
-    addEventListener('selectstart', e => e.preventDefault());
+    addEventListener('selectstart', e => { if (!(e.target.closest && e.target.closest('input,select,textarea'))) e.preventDefault(); });
     addEventListener('contextmenu', e => e.preventDefault());
     addEventListener('gesturestart', e => e.preventDefault());
     addEventListener('keyup', e => {
+      if (typing(e)) return;
       if (JUMP.includes(e.code)) this.keyHeld = false;
       else if (e.code === 'ArrowDown' || e.code === 'KeyS') this.keyDown = false;
     });

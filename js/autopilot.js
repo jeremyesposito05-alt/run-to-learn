@@ -55,7 +55,7 @@ const Autopilot = {
   },
   // Simulation accélérée, sans affichage
   simulate(steps = 10000, o = {}) {
-    const opts = { sub: 'math', lvl: 5, level: 'n2', ...o, sim: true };
+    const opts = { themes: ['m.tab'], level: 'n2', ...o, sim: true };
     UI.hideAll(); Game.start(opts); this.reset(o.accuracy ?? 1);
     const rep = { falls: [], hurts: [], stuck: [] };
     const oP = Game.pitFall, oH = Game.hurt;

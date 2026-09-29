@@ -44,7 +44,7 @@ const Game = {
     this.opts = opts; this.demo = !!opts.demo; this.level = LEVELS[opts.level] || LEVELS.n1;
     this.persist = !opts.demo && !opts.sim;              // la démo et les simulations n'écrivent rien dans les carnets
     this.seed = (Date.now() & 0xffffff) | 1;
-    this.session = Quiz.Session(opts.sub, opts.lvl, this.seed ^ 0x5bd1e995, this.persist);
+    this.session = Quiz.Session(opts.themes, this.seed ^ 0x5bd1e995, this.persist);
     Object.assign(this, { frame: 0, mercy: 0, energy: 100, score: 0, stomps: 0, chain: 0, combo: 0, bestCombo: 0, streak: 0, wrongRow: 0,
       caught: 0, missedOrbs: 0, boost: 0, banner: null, popups: [], focus: null, tAcc: 0, stage: 0, trans: null, meters: 0,
       blasonsRun: 0, newBiomes: 0 });
@@ -321,19 +321,19 @@ const Game = {
   },
 };
 
-/* ─── Sauvegarde (meilleurs scores, sur cet ordinateur) ─── */
+/* ─── Records (par profil, sur cet appareil) ─── */
 const Save = {
-  key: 'rtl-moteur-v2',
-  load() { try { return JSON.parse(localStorage.getItem(this.key)) || {}; } catch (e) { return {}; } },
-  best(id, score) { const d = this.load(), old = d[id] || 0; if (score > old) { d[id] = score; try { localStorage.setItem(this.key, JSON.stringify(d)); } catch (e) { } } return old; },
+  key: () => 'rtl-records-v1:' + (Profiles.activeId || 'invite'),
+  load() { try { return JSON.parse(localStorage.getItem(this.key())) || {}; } catch (e) { return {}; } },
+  best(id, score) { const d = this.load(), old = d[id] || 0; if (score > old) { d[id] = score; try { localStorage.setItem(this.key(), JSON.stringify(d)); } catch (e) { } } return old; },
 };
 
 /* ─── Menus ─── */
 const UI = {
-  sel: { sub: 'math', lvl: 1, level: 'n1' },
+  sel: { sub: 'math', themes: ['m.add20'], label: '', level: 'n1' },
   $: id => document.getElementById(id),
   hideAll() { document.querySelectorAll('.panel').forEach(p => p.hidden = true); },
-  show(id) { this.hideAll(); this.$(id).hidden = false; const b = this.$(id).querySelector('button'); if (b) b.focus(); },
+  show(id) { this.hideAll(); this.$(id).hidden = false; const b = this.$(id).querySelector('button,input'); if (b && b.tagName === 'BUTTON') b.focus(); },
   init() {
     const subs = this.$('subjects');
     for (const [k, s] of Object.entries(Quiz.SUBJECTS)) {
@@ -342,30 +342,92 @@ const UI = {
     }
     const modes = this.$('modes');
     for (const [k, m] of Object.entries(LEVELS)) {
-      const b = document.createElement('button'); b.className = 'big'; b.innerHTML = `${m.label}<small>${m.hint}</small>`;
+      const b = document.createElement('button'); b.className = 'big'; b.dataset.level = k; b.innerHTML = `${m.label}<small>${m.hint}</small>`;
       b.onclick = () => { this.sel.level = k; Sound.unlock(); this.hideAll(); Game.start({ ...this.sel }); }; modes.appendChild(b);
     }
-    document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => this.show(b.dataset.go));
+    // liste des années : « 4P · Grade 2 · PYP (7-8 ans) »
+    this.$('pf-year').innerHTML = YEARS.map(e => `<option value="${e.y}">${esc(Years.label(e.y))} (${esc(e.age)})</option>`).join('');
+    this.$('pf-year').value = '4';
+    this.$('pf-form').onsubmit = e => {
+      e.preventDefault();
+      const name = this.$('pf-name').value.trim(); if (!name) { this.$('pf-name').focus(); return; }
+      Profiles.create(name, this.$('pf-year').value); this.$('pf-name').value = ''; this.title();
+    };
+    document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => (b.dataset.go === 'title' ? this.title() : this.show(b.dataset.go)));
+    this.$('btn-player').onclick = () => this.profiles();
     this.$('btn-resume').onclick = () => Game.togglePause();
     this.$('btn-pause').onclick = () => Game.togglePause();
     this.$('btn-pause').addEventListener('pointerdown', e => e.stopPropagation());
-    this.$('btn-quit').onclick = () => { startDemo(); this.show('title'); };
+    this.$('btn-quit').onclick = () => { startDemo(); this.title(); };
     this.$('btn-again').onclick = () => { this.hideAll(); Game.start({ ...this.sel }); };
-    this.$('btn-menu').onclick = () => { startDemo(); this.show('title'); };
+    this.$('btn-menu').onclick = () => { startDemo(); this.title(); };
     this.$('btn-carnet').onclick = () => this.carnet();
+    if (Profiles.active()) this.title(); else this.profiles();
+  },
+  title() {
+    const p = Profiles.active(); if (!p) return this.profiles();
+    this.$('btn-player').innerHTML = `<b>${esc(p.name)}</b> · ${esc(Years.label(p.year))}<small>changer de joueur</small>`;
     this.show('title');
   },
+  // « Qui joue ? » : les profils de l'appareil, et le formulaire pour en créer un
+  profiles() {
+    const box = this.$('pf-list'); box.innerHTML = '';
+    for (const p of Profiles.list) {
+      const card = document.createElement('div'); card.className = 'pf-card' + (p.id === Profiles.activeId ? ' on' : '');
+      card.innerHTML = `<button class="pf-play"><b>${esc(p.name)}</b><small>${esc(Years.label(p.year))}</small></button>
+        <select class="pf-y" aria-label="Année de ${esc(p.name)}">${YEARS.map(e => `<option value="${e.y}"${e.y === p.year ? ' selected' : ''}>${esc(Years.short(e.y))}</option>`).join('')}</select>
+        <button class="ghost pf-del">Supprimer</button>`;
+      card.querySelector('.pf-play').onclick = () => { Profiles.select(p.id); this.title(); };
+      card.querySelector('.pf-y').onchange = e => { Profiles.setYear(p.id, e.target.value); this.profiles(); };
+      const del = card.querySelector('.pf-del');   // pas de boîte de dialogue : on confirme d'un second toucher
+      del.onclick = () => { if (del.dataset.sure) { Profiles.remove(p.id); this.profiles(); } else { del.dataset.sure = 1; del.textContent = 'Confirmer ?'; } };
+      box.appendChild(card);
+    }
+    this.$('pf-title').textContent = Profiles.list.length ? 'Qui joue ?' : 'Bienvenue ! Qui joue ?';
+    this.show('profils');
+  },
   stars(n) { return '<span class="stars" aria-label="' + n + ' étoile' + (n > 1 ? 's' : '') + ' sur 3">' + '★'.repeat(n) + '<i>' + '★'.repeat(3 - n) + '</i></span>'; },
+  themeButton(t) {
+    const b = document.createElement('button'), m = Memory.mastery(t.id), [y0, y1] = t.years;
+    const span = y0 === y1 ? Years.get(y0).ch : `${Years.get(y0).ch} → ${Years.get(y1).ch}`;
+    b.innerHTML = `${esc(t.name)}${this.stars(Memory.stars(t.id))}<small>${m.seen ? Math.round(m.pct * 100) + ' % maîtrisé' : 'jamais joué'} · ${esc(span)}</small>`;
+    b.onclick = () => { this.sel.themes = [t.id]; this.sel.label = t.name; this.mode(); };
+    return b;
+  },
+  mixButton(themes, label, hint) {
+    const b = document.createElement('button'); b.className = 'mix';
+    b.innerHTML = `${esc(label)}<small>${esc(hint)}</small>`;
+    b.onclick = () => { this.sel.themes = themes.map(t => t.id); this.sel.label = label; this.mode(); };
+    return b;
+  },
+  // Thèmes d'une matière, rangés par rapport à l'année de l'élève
   levels() {
-    const s = Quiz.SUBJECTS[this.sel.sub], box = this.$('level-list'); box.innerHTML = '';
+    const y = Profiles.year(), s = Quiz.SUBJECTS[this.sel.sub], { mine, before, after } = Quiz.themesFor(this.sel.sub, y), box = this.$('level-list');
+    box.innerHTML = '';
     this.$('level-title').textContent = s.label;
-    s.levels.forEach((l, i) => {
-      const b = document.createElement('button'), m = Memory.mastery(this.sel.sub, i + 1);
-      b.className = Quiz.isMix(this.sel.sub, i + 1) ? 'mix' : '';
-      b.innerHTML = `${esc(l)}${this.stars(Memory.stars(this.sel.sub, i + 1))}<small>${m.seen ? Math.round(m.pct * 100) + ' % maîtrisé' : 'jamais joué'}${Quiz.isMix(this.sel.sub, i + 1) ? ' · révision de toute la matière' : ''}</small>`;
-      b.onclick = () => { this.sel.lvl = i + 1; this.show('mode'); }; box.appendChild(b);
-    });
+    this.$('level-sub').textContent = 'Programme de ' + Years.label(y);
+    const grid = document.createElement('div'); grid.className = 'grid';
+    mine.forEach(t => grid.appendChild(this.themeButton(t)));
+    if (mine.length > 1) grid.appendChild(this.mixButton(mine, 'Tout mélangé · mon année', 'mélanger les thèmes oblige à choisir la bonne méthode'));
+    if (!mine.length) { const p = document.createElement('p'); p.className = 'sub'; p.textContent = `Pas encore de thème de ${s.label.toLowerCase()} pour cette année : essaie « Pour aller plus loin ».`; box.appendChild(p); }
+    box.appendChild(grid);
+    const fold = (title, list, mix) => {
+      if (!list.length) return;
+      const d = document.createElement('details'); d.innerHTML = `<summary>${esc(title)} · ${list.length} thème${list.length > 1 ? 's' : ''}</summary>`;
+      const g = document.createElement('div'); g.className = 'grid';
+      list.forEach(t => g.appendChild(this.themeButton(t)));
+      if (mix && list.length > 1) g.appendChild(this.mixButton(list, 'Tout mélangé · révisions', 'les thèmes des années passées, mélangés'));
+      d.appendChild(g); box.appendChild(d);
+    };
+    fold('Réviser les années précédentes', before, true);
+    fold('Pour aller plus loin', after.slice(0, 8), false);
     this.show('levels');
+  },
+  mode() {
+    const y = Profiles.year(), rec = y <= 5 ? 'n1' : y <= 9 ? 'n2' : 'n3';   // niveau conseillé selon l'âge
+    this.$('mode-theme').textContent = this.sel.label;
+    this.$('modes').querySelectorAll('button').forEach(b => b.classList.toggle('rec', b.dataset.level === rec));
+    this.show('mode');
   },
   // Carnet d'explorateur : biomes, blasons, tenues, maîtrise
   carnet() {
@@ -385,12 +447,13 @@ const UI = {
       sx.appendChild(b);
     });
     const mx = this.$('carnet-mastery'); let rows = '';
-    for (const [k, s] of Object.entries(Quiz.SUBJECTS)) s.levels.forEach((l, i) => { const m = Memory.mastery(k, i + 1); if (m.seen && !Quiz.isMix(k, i + 1)) rows += `<div class="miss"><span>${esc(s.label)} · ${esc(l)}</span><b>${this.stars(Memory.stars(k, i + 1))} ${Math.round(m.pct * 100)} %</b></div>`; });
-    mx.innerHTML = `<h3>Ce que tu as retenu · ${Memory.totalOwned()} question${Memory.totalOwned() > 1 ? 's' : ''} pour de bon</h3>` + (rows || '<p class="sub">Joue une partie : chaque question réussie entre dans ton carnet de mémoire.</p>');
+    for (const t of Quiz.THEMES) { const m = Memory.mastery(t.id); if (m.seen) rows += `<div class="miss"><span>${esc(Quiz.SUBJECTS[t.sub].label)} · ${esc(t.name)}</span><b>${this.stars(Memory.stars(t.id))} ${Math.round(m.pct * 100)} %</b></div>`; }
+    const p = Profiles.active();
+    mx.innerHTML = `<h3>${p ? esc(p.name) + ', tu' : 'Tu'} as retenu ${Memory.totalOwned()} question${Memory.totalOwned() > 1 ? 's' : ''} pour de bon</h3>` + (rows || '<p class="sub">Joue une partie : chaque question réussie entre dans ton carnet de mémoire.</p>');
     this.show('carnet');
   },
   showOver() {
-    const G = Game, S = G.session, id = `${G.opts.sub}:${G.opts.lvl}:${G.opts.level}`, old = Save.best(id, G.score);
+    const G = Game, S = G.session, id = G.opts.themes.join('+') + ':' + G.opts.level, old = Save.best(id, G.score);
     this.$('over-stats').innerHTML = `
       <div><b>${G.score}</b>points</div><div><b>${G.stage + 1}</b>biome${G.stage ? 's' : ''} · ${esc(G.biome.short)}</div><div><b>${G.meters}</b>mètres</div>
       <div><b>${S.right} / ${S.asked}</b>bonnes réponses</div><div><b>${G.caught} / ${G.caught + G.missedOrbs}</b>bonus attrapés</div>
@@ -411,6 +474,7 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ─── Démarrage ─── */
 function boot() {
   const cv = document.getElementById('game');
+  Profiles.load();
   Render.init(cv); Input.init(cv); UI.init();
   Input.onKey = code => {
     if (Game.state === 'play' && !Game.demo && Game.focusKey(code)) return;
@@ -425,14 +489,15 @@ function boot() {
   });
   // captures d'écran pour les aperçus : #apercu, #apercu-course, #apercu-course-foret, #apercu-transition
   const hash = location.hash.slice(1), foret = hash.endsWith('-foret'), shot = hash.replace('-foret', '');
+  const demoThemes = { themes: ['m.tabmix'], level: 'n2', sim: true };
   if (shot === 'apercu-transition') {
-    UI.hideAll(); Game.start({ sub: 'math', lvl: 6, level: 'n2' }); Game.intro = 0;
+    UI.hideAll(); Game.start(demoThemes); Game.intro = 0;
     for (let i = 0; i < 200; i++) Game.update();
     Game.startTransition(); for (let i = 0; i < 70; i++) Game.update();   // iris rouvert à moitié sur la forêt
     Game.biomeCard = 150; Game.trans = null; FX.freeze = 1e9;
   }
   if (shot === 'apercu' || shot === 'apercu-course') {
-    UI.hideAll(); Game.start({ sub: 'math', lvl: 6, level: 'n2' }); if (foret) Game.enterBiome(1); Autopilot.reset(1);
+    UI.hideAll(); Game.start(demoThemes); if (foret) Game.enterBiome(1); Autopilot.reset(1);
     for (let i = 0; i < 8000; i++) {
       if (shot === 'apercu' && Game.focus && Game.focus.phase === 'choose' && Game.frame > 900) { Game.focus.sel = 1; Game.focus.lock = 1e9; Game.focus.time = Math.round(Game.focus.timeMax * .6); FX.freeze = 1e9; break; }
       if (shot === 'apercu-course' && !Game.focus && Game.frame > 900 && Game.orbs.some(o => !o.done && o.x - Player.x < 150 && o.x > Player.x + 40)) { FX.freeze = 1e9; break; }
@@ -440,7 +505,7 @@ function boot() {
     }
     Autopilot.step = () => { };
   }
-  const err = Quiz.selfTest(); if (err.length) console.warn('Questions à corriger :', err); else console.log('Questions : autotest OK');
+  const err = Quiz.selfTest(); if (err.length) console.warn('Questions à corriger :', err); else console.log('Questions : autotest OK (' + Quiz.THEMES.length + ' thèmes)');
 }
-function startDemo() { Game.start({ sub: 'math', lvl: 6, level: 'n2', demo: true }); Autopilot.reset(.8); }
+function startDemo() { Game.start({ themes: ['m.tabmix', 'f.pres1'], level: 'n2', demo: true }); Autopilot.reset(.8); }
 boot();
