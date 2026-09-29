@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Run to Learn — moteur</title>
+<style>
+:root{--navy:#1A2047;--mid:#14387F;--bright:#0087CC;--gold:#F3BE31;--orange:#CA5007;--grey:#9C9895;--pale:#E7E9EF}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#0b0f26;color:var(--pale);font-family:Calibri,'Segoe UI',sans-serif;overflow:hidden}
+body{display:flex;align-items:center;justify-content:center}
+#game{display:block;image-rendering:pixelated;touch-action:none;background:#000}
+.panel{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px;
+  background:rgba(11,15,38,.72);text-align:center}
+.panel[hidden]{display:none}
+h1{font-family:'SangBleu OG Sans',Calibri,sans-serif;font-weight:normal;font-size:clamp(34px,7vw,64px);margin:0;letter-spacing:.02em;color:#fff}
+h1 span{color:var(--gold)}
+h2{font-family:'SangBleu OG Sans',Calibri,sans-serif;font-weight:normal;font-size:clamp(22px,4vw,34px);margin:0;color:#fff}
+h3{font-weight:normal;color:var(--gold);margin:6px 0 4px;font-size:18px}
+.sub{color:#b9c3e8;margin:-6px 0 6px;font-size:16px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:min(560px,100%)}
+button{font:inherit;font-size:17px;color:#fff;background:var(--mid);border:0;border-bottom:3px solid var(--navy);border-radius:10px;padding:12px 14px;cursor:pointer}
+button:hover,button:focus-visible{background:var(--bright);outline:2px solid var(--gold);outline-offset:1px}
+button.big{font-size:20px;padding:16px}
+button small{display:block;font-size:13px;color:#cfe3f5;margin-top:4px}
+button.ghost{background:transparent;border:1px solid #4a5390;color:#cfd5f0}
+.keys{color:#9aa3c8;font-size:14px;max-width:560px;line-height:1.5}
+.keys b{color:var(--gold);font-weight:normal}
+#over-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:min(560px,100%)}
+#over-stats div{background:rgba(20,56,127,.5);border-radius:10px;padding:8px;font-size:14px;color:#b9c3e8}
+#over-stats b{display:block;font-size:26px;color:#fff;font-weight:normal}
+#over-best{color:var(--gold)}
+#over-missed{width:min(560px,100%);max-height:32vh;overflow:auto;text-align:left}
+.miss{display:flex;justify-content:space-between;gap:12px;padding:6px 10px;border-bottom:1px solid #2a3166;font-size:15px}
+.miss b{color:#8ff0b8;font-weight:normal;white-space:nowrap}
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+@media (max-width:520px){.grid,#over-stats{grid-template-columns:1fr 1fr}}
+.panel{overflow-y:auto;justify-content:safe center}
+/* téléphone à l'horizontale : écran bas, on resserre */
+@media (max-height:500px){h1{font-size:30px}h2{font-size:22px}.sub{font-size:14px}button{padding:8px 12px;font-size:15px}button.big{padding:10px 12px;font-size:16px}
+  button small{font-size:11px}.keys{display:none}.panel{gap:8px}#over-stats b{font-size:18px}}
+/* bouton pause pour les écrans tactiles, visible seulement pendant une partie */
+#btn-pause{position:fixed;right:calc(10px + env(safe-area-inset-right,0px));bottom:calc(10px + env(safe-area-inset-bottom,0px));width:44px;height:44px;padding:0;border-radius:50%;
+  font-size:16px;letter-spacing:2px;background:rgba(26,32,71,.7);border:1px solid #4a5390;display:none}
+body.playing #btn-pause{display:block}
+/* téléphone en portrait : le jeu se joue à l'horizontale */
+#rotate{display:none;position:fixed;inset:0;z-index:10;background:#0b0f26;color:#fff;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center;font-size:18px}
+#rotate b{font-size:44px;color:var(--gold);font-weight:normal}
+@media (orientation:portrait) and (max-width:700px){#rotate{display:flex}}
+/* étoiles de maîtrise, carnet d'explorateur */
+.stars{color:var(--gold);letter-spacing:1px;margin-left:8px;font-size:15px}.stars i{color:#3d4679;font-style:normal}
+#level-list button{text-align:left}#level-list button.mix{grid-column:1/-1;background:#1b2f6b;border:1px dashed var(--gold)}
+#carnet-biomes{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;width:min(620px,100%)}
+.biome{background:rgba(20,56,127,.5);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:4px;align-items:center}
+.biome b{font-weight:normal;color:#fff;font-size:16px}.biome small{color:#b9c3e8;font-size:12px}.biome.locked{opacity:.55;border:1px dashed #4a5390;background:transparent}
+.shields{display:flex;gap:6px}.shields i{width:16px;height:19px;background:#2a3166;clip-path:polygon(0 0,100% 0,100% 55%,50% 100%,0 55%)}.shields i.on{background:var(--gold)}
+#carnet-skins{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;width:min(620px,100%)}
+.skin{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:14px}.skin.on{outline:2px solid var(--gold)}.skin:disabled{opacity:.5;cursor:default}
+.swatch{width:22px;height:22px;border-radius:4px;border:3px solid}
+#carnet-mastery{width:min(620px,100%);text-align:left}
+.miss em{display:block;font-style:normal;color:#9aa3c8;font-size:13px}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<button id="btn-pause" aria-label="Pause">II</button>
+<div id="rotate"><b>⟳</b>Tourne ton téléphone à l’horizontale pour jouer.</div>
+
+<section class="panel" id="title" hidden>
+  <h1>Run to <span>Learn!</span></h1>
+  <p class="sub">Attrape les bonus question et réponds juste pour garder ton endurance !</p>
+  <div class="grid" id="subjects"></div>
+  <button id="btn-carnet" class="ghost">Carnet d'explorateur · biomes, blasons, tenues</button>
+  <p class="keys"><b>Espace</b>, <b>↑</b>, clic ou manette : sauter (maintenir = plus haut, deux fois = double saut) ·
+    <b>↓</b> descendre vite · <b>Échap</b> pause · <b>M</b> son · <b>H</b> hitbox</p>
+</section>
+<section class="panel" id="levels" hidden>
+  <h2 id="level-title"></h2>
+  <div class="grid" id="level-list"></div>
+  <button class="ghost" data-go="title">← Retour</button>
+</section>
+<section class="panel" id="mode" hidden>
+  <h2>Quel niveau ?</h2>
+  <div class="grid" id="modes" style="grid-template-columns:repeat(3,minmax(0,1fr))"></div>
+  <button class="ghost" data-go="levels">← Retour</button>
+</section>
+<section class="panel" id="carnet" hidden>
+  <h2>Carnet d'explorateur</h2>
+  <div id="carnet-biomes"></div>
+  <h3>Tenues de CubeBoy</h3>
+  <div id="carnet-skins"></div>
+  <div id="carnet-mastery"></div>
+  <button class="ghost" data-go="title">← Retour</button>
+</section>
+<section class="panel" id="pause" hidden>
+  <h2>Pause</h2>
+  <div class="row"><button id="btn-resume" class="big">Reprendre</button><button id="btn-quit" class="ghost">Menu</button></div>
+</section>
+<section class="panel" id="over" hidden>
+  <h2>Plus d’énergie !</h2>
+  <div id="over-stats"></div>
+  <div id="over-best"></div>
+  <div id="over-missed"></div>
+  <div class="row"><button id="btn-again" class="big">Rejouer</button><button id="btn-menu" class="ghost">Menu</button></div>
+</section>
+
+<script src="js/engine.js"></script>
+<script src="js/content.js"></script>
+<script src="js/carnet.js"></script>
+<script src="js/world.js"></script>
+<script src="js/biomes.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/render.js"></script>
+<script src="js/autopilot.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
