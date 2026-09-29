@@ -61,9 +61,10 @@ const Autopilot = {
     const oP = Game.pitFall, oH = Game.hurt;
     Game.pitFall = function () { rep.falls.push(Math.round(Player.x / TILE)); oP.call(Game); };
     Game.hurt = function (d, e) { if (Player.inv === 0 && Game.boost === 0) rep.hurts.push((e ? e.kind : 'pics') + '@' + Math.round(Player.x / TILE)); oH.call(Game, d, e); };
-    let still = 0, frames = 0;
+    let still = 0, frames = 0, typAcc = 0;
     for (let i = 0; i < steps && Game.state === 'play'; i++) {
-      this.step(); Game.update(); frames++;
+      if (Game.typing) { typAcc += (o.cps || 4) / 60; while (typAcc >= 1) { typAcc--; Typing.botType(o.err || 0); } } else this.step();   // mode frappe : le pilote tape au clavier
+      Game.update(); frames++;
       if (!Game.focus && Game.intro === 0 && Math.abs(Player.vx) < .3) { if (++still === 60) rep.stuck.push(Math.round(Player.x / TILE)); } else still = 0;
     }
     Game.pitFall = oP; Game.hurt = oH; Input.keyHeld = Input.keyDown = false;

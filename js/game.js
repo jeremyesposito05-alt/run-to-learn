@@ -43,13 +43,16 @@ const Game = {
   start(opts) {
     this.opts = opts; this.demo = !!opts.demo; this.level = LEVELS[opts.level] || LEVELS.n1;
     this.persist = !opts.demo && !opts.sim;              // la démo et les simulations n'écrivent rien dans les carnets
+    this.typing = !!opts.typing; if (opts.typing) Typing.start(opts.typing); else Typing.stop();   // mode frappe au clavier
+    Input.charMode = this.typing && !opts.demo;
     this.seed = (Date.now() & 0xffffff) | 1;
     this.session = Quiz.Session(opts.themes, this.seed ^ 0x5bd1e995, this.persist);
     Object.assign(this, { frame: 0, mercy: 0, energy: 100, score: 0, stomps: 0, chain: 0, combo: 0, bestCombo: 0, streak: 0, wrongRow: 0,
       caught: 0, missedOrbs: 0, boost: 0, banner: null, popups: [], focus: null, tAcc: 0, stage: 0, trans: null, meters: 0,
-      blasonsRun: 0, newBiomes: 0 });
+      blasonsRun: 0, newBiomes: 0, typedOk: 0 });
     FX.reset(); Input.clear();
     this.enterBiome(0);
+    if (this.typing && !this.demo) this.say('Tape le mot écrit au-dessus de chaque obstacle !', '#fff4c8', 220);
     this.state = 'play';
   },
   // Construit un biome neuf : nouveau monde, nouveaux morceaux, nouveaux ennemis
@@ -58,6 +61,7 @@ const Game = {
     this.biomeIdx = k % BIOMES.length; this.biome = BIOMES[this.biomeIdx]; this.stage = k; this.biomeRight = 0;
     Object.assign(this, { camX: 0, camY: 0, intro: 70, diff: 0, enemies: [], orbs: [], shots: [], blasons: [], sinceOrb: 0, orbEvery: 2, _spots: [], biomeCard: 200, chunkN: 0 });
     this.crumbles = new Map();
+    Typing.target = null; Typing.lastX = -1e9;   // nouveau biome : le monde repart de zéro, le repérage des obstacles aussi
     this.firstVisit = Carnet.seeBiome(this.biome.id); if (this.firstVisit && k > 0) this.newBiomes++;
     World.reset(); Gen.reset(this.seed + k * 7919, this.biome);
     this.extend();
@@ -66,7 +70,7 @@ const Game = {
   biomeTitle() { const lap = Math.floor(this.stage / BIOMES.length); return this.biome.name + (lap ? ' · ' + ['', 'II', 'III', 'IV', 'V'][Math.min(lap, 4)] : ''); },
   runSpeed() {
     if (this.intro > 0) return 0;
-    return (this.level.speed + Math.min(1, this.diff) * this.level.ramp + Math.min(this.stage, 6) * .1) * (this.boost > 0 ? 1.3 : 1);
+    return (this.level.speed + Math.min(1, this.diff) * this.level.ramp + Math.min(this.stage, 6) * .1) * (this.boost > 0 ? 1.3 : 1) * (this.typing ? Typing.speedFactor() : 1);
   },
   shoot(x, y, vx, vy, g) { this.shots.push({ x, y, vx, vy, g, w: 6, h: 6, t: 0, dead: false }); },
   crumble(cx, cy) { const k = cx + ',' + cy; if (!this.crumbles.has(k) && World.tile(cx, cy) === 'k') { this.crumbles.set(k, 26); Sound.tone(180, .05, 'triangle', .04); } },
@@ -88,7 +92,7 @@ const Game = {
         const [a, b] = this.level.every; this.orbEvery = U.int(Gen.r, a, b);
       }
       const bi = BLASON_AT.indexOf(this.chunkN);
-      if (bi >= 0) this.placeBlason(startCx, ch.w, bi, orbSpot);
+      if (bi >= 0 && !this.typing) this.placeBlason(startCx, ch.w, bi, orbSpot);   // en mode frappe, on ne pilote pas ses sauts : pas de blasons perchés
     }
   },
   // Blason caché : on prend l'emplacement le PLUS difficile du morceau (celui que le bonus n'a pas pris)
@@ -115,7 +119,8 @@ const Game = {
   placeOrb(startCx, w) {
     const ground = cx => { for (let y = 0; y < ROWS; y++) if (World.solid(cx, y) || isOneWay(World.tile(cx, y))) return y; return -1; };
     const below = (cx, cy) => { for (let y = cy + 1; y < ROWS; y++) if (World.solid(cx, y) || isOneWay(World.tile(cx, y))) return y; return -1; };
-    const forced = this._spots.filter(s => s.force);
+    const flat = (cx, g) => { for (let d = -6; d <= 3; d++) if (ground(cx + d) !== g) return false; return true; };
+    const forced = this.typing ? []: this._spots.filter(s => s.force);
     if (forced.length && Gen.r() < .75) { const s = U.pick(Gen.r, forced); this.orbs.push(makeOrb(s.cx, s.cy, 6)); return s; }
     let cands = this._spots.filter(s => !s.force).map(s => {
       const g = below(s.cx, s.cy);
@@ -123,9 +128,10 @@ const Game = {
       // au-dessus d'un trou : on place le bonus au sommet d'un saut lancé depuis le bord (sinon on passe par-dessus)
       let edge = -1; for (let d = 1; d < 8 && edge < 0; d++) { const l = ground(s.cx - d); if (l > 0) edge = l; }
       return edge < 0 ? null : { cx: s.cx, cy: edge - 5, hard: 6 };
-    }).filter(s => s && s.hard <= 6 && s.cy >= 1);             // trop haut même avec le double saut : écarté
+    }).filter(s => s && s.hard <= (this.typing ? 2 : 6) && s.cy >= 1 && (!this.typing || flat(s.cx, s.cy + s.hard)));   // trop haut même avec le double saut : écarté
+    // mode frappe : bonus à hauteur de course, sur un sol plat (près d'un trou ou d'un mur, le saut automatique passerait par-dessus)
     if (!cands.length) {                                       // aucun emplacement dessiné : on pose le bonus sur le sol, à portée de course
-      for (let d = 0; d < w * .5 && !cands.length; d++) { const cx = startCx + Math.floor(w * .45) + d, g = ground(cx); if (g > 2 && !World.solid(cx, g - 1) && !World.solid(cx, g - 2)) cands = [{ cx, cy: g - 2, hard: 2 }]; }
+      for (let d = 0; d < w * .5 && !cands.length; d++) { const cx = startCx + Math.floor(w * .45) + d, g = ground(cx); if (g > 2 && !World.solid(cx, g - 1) && !World.solid(cx, g - 2) && (!this.typing || flat(cx, g))) cands = [{ cx, cy: g - 2, hard: 2 }]; }
       if (!cands.length) return false;
     }
     cands.sort((a, b) => a.hard - b.hard);
@@ -146,6 +152,7 @@ const Game = {
   simStep() {
     this.frame++;
     if (this.intro > 0) { this.intro--; Input.clear(); }
+    if (this.typing) Typing.step();                        // mode frappe : le mot tapé déclenche le saut
 
     Player.update();
     if (Player.on) this.chain = 0;
@@ -161,7 +168,7 @@ const Game = {
     // le compte à rebours : l'endurance baisse en continu (un peu plus vite à chaque biome franchi)
     if (this.intro === 0 && !this.demo) this.energy -= this.level.drain * (1 + Math.min(this.stage, 6) * .12);
     if (this.demo) { this.energy = 100; if (Player.x > 16000) startDemo(); }
-    if (Player.blocked === 50) this.say('Saute !  (contre un mur : saute encore pour rebondir)', '#fff4c8', 120);
+    if (Player.blocked === 50 && !this.typing) this.say('Saute !  (contre un mur : saute encore pour rebondir)', '#fff4c8', 120);
 
     // difficulté : grandit avec la distance et à chaque biome franchi, baisse un peu après deux erreurs de suite
     this.diff = U.clamp(this.stage * RULES.stageHarder + Player.x / 20000 + this.mercy, 0, 1.2);
@@ -189,6 +196,7 @@ const Game = {
   catchOrb(o) {
     o.done = true; this.caught++;
     FX.burst(o.x + 7, o.y + 7, 16, '#fff4c8', 2, 0, 18); FX.hitstop(3);
+    if (this.typing) { this.focus = Typing.challenge(); this.tAcc = 0; Input.clear(); Sound.announce(); return; }   // mode frappe : une phrase à recopier
     const it = this.session.next(), labels = U.shuffle(Math.random, [it.a, ...it.bad]);
     const L = this.level, chars = it.q.length + labels.join('').length;
     const time = L.timer ? Math.round((L.timer + chars * L.perChar) * 60) : 0;   // un peu plus de temps pour les questions longues
@@ -221,6 +229,9 @@ const Game = {
       this.tAcc += Math.max(0, 1 - f.t / FOCUS.in);
       while (this.tAcc >= 1) { this.tAcc--; this.simStep(); }
       if (f.t >= FOCUS.in) { f.phase = 'choose'; f.t = 0; }
+    } else if (f.phase === 'choose' && f.kind === 'type') {   // défi de frappe : les lettres arrivent par Typing.onChar
+      Input.takeClicks(); Input.takePress();
+      if (f.timeMax && !this.demo && --f.time <= 0) Typing.challengeEnd(f, false);
     } else if (f.phase === 'choose') {
       for (const c of Input.takeClicks()) for (let i = 0; i < 3; i++) if (f.lock === 0 && U.overlap({ x: c.x, y: c.y, w: 1, h: 1 }, FOCUS_BOX(i))) this.choose(i);
       if (f.phase === 'choose' && Input.hover) for (let i = 0; i < 3; i++) if (U.overlap({ x: Input.hover.x, y: Input.hover.y, w: 1, h: 1 }, FOCUS_BOX(i))) f.sel = i;
@@ -263,7 +274,8 @@ const Game = {
     const f = this.focus; if (!f || f.phase !== 'choose') return;
     f.chosen = i; f.sel = i; f.phase = 'result'; f.t = 0;
     const ok = i === f.correct;
-    this.session.result(f.it, ok);
+    if (f.kind !== 'type') this.session.result(f.it, ok);
+    if (f.kind === 'type' && ok) this.typedOk++;
     if (ok) {
       this.combo++; this.streak++; this.wrongRow = 0; this.bestCombo = Math.max(this.bestCombo, this.combo); this.biomeRight++;
       this.energy = Math.min(100, this.energy + RULES.correct);
@@ -310,6 +322,7 @@ const Game = {
     if (this.state !== 'play') return;
     this.state = 'over'; Sound.over();
     this.meters += Math.floor(Player.x / TILE);
+    if (this.typing) { this.typingEnd = { wpm: Typing.wpm(), acc: Typing.acc(), ...TypingProgress.record(Typing.lesson.id, Typing.wpm(), Typing.acc()) }; Input.charMode = false; }
     Carnet.endRun(this.stage);
     this.score += this.meters + this.stage * 1000;       // chaque biome franchi vaut 1000 points
     UI.showOver();
@@ -325,7 +338,7 @@ const Game = {
 const Save = {
   key: () => 'rtl-records-v1:' + (Profiles.activeId || 'invite'),
   load() { try { return JSON.parse(localStorage.getItem(this.key())) || {}; } catch (e) { return {}; } },
-  best(id, score) { const d = this.load(), old = d[id] || 0; if (score > old) { d[id] = score; try { localStorage.setItem(this.key(), JSON.stringify(d)); } catch (e) { } } return old; },
+  best(id, score) { const d = this.load(), old = d[id] || 0; if (score > old && Game.persist) { d[id] = score; try { localStorage.setItem(this.key(), JSON.stringify(d)); } catch (e) { } } return old; },
 };
 
 /* ─── Menus ─── */
@@ -340,6 +353,8 @@ const UI = {
       const b = document.createElement('button'); b.textContent = s.label; b.className = 'big';
       b.onclick = () => { this.sel.sub = k; this.levels(); }; subs.appendChild(b);
     }
+    const kb = document.createElement('button'); kb.className = 'big'; kb.innerHTML = 'Clavier<small>apprendre à taper</small>';
+    kb.onclick = () => { this.sel.sub = 'kb'; this.keyboard(); }; subs.appendChild(kb);
     const modes = this.$('modes');
     for (const [k, m] of Object.entries(LEVELS)) {
       const b = document.createElement('button'); b.className = 'big'; b.dataset.level = k; b.innerHTML = `${m.label}<small>${m.hint}</small>`;
@@ -391,13 +406,41 @@ const UI = {
     const b = document.createElement('button'), m = Memory.mastery(t.id), [y0, y1] = t.years;
     const span = y0 === y1 ? Years.get(y0).ch : `${Years.get(y0).ch} → ${Years.get(y1).ch}`;
     b.innerHTML = `${esc(t.name)}${this.stars(Memory.stars(t.id))}<small>${m.seen ? Math.round(m.pct * 100) + ' % maîtrisé' : 'jamais joué'} · ${esc(span)}</small>`;
-    b.onclick = () => { this.sel.themes = [t.id]; this.sel.label = t.name; this.mode(); };
+    b.onclick = () => { this.sel.themes = [t.id]; this.sel.label = t.name; this.sel.typing = null; this.mode(); };
     return b;
+  },
+  // Clavier : les leçons de frappe, et le type de clavier (suisse ou français)
+  keyboard() {
+    const kbKey = 'rtl-clavier:' + (Profiles.activeId || 'invite');
+    let layout = 'ch'; try { layout = localStorage.getItem(kbKey) || 'ch'; } catch (e) { }
+    const box = this.$('level-list'); box.innerHTML = '';
+    this.$('level-title').textContent = 'Clavier';
+    this.$('level-sub').textContent = 'Tape le mot écrit au-dessus de chaque obstacle : CubeBoy saute ou pulvérise l’ennemi tout seul.';
+    if (matchMedia('(hover: none) and (pointer: coarse)').matches) { const w = document.createElement('p'); w.className = 'warn'; w.textContent = 'Ce mode demande un vrai clavier : branche un clavier ou joue sur un ordinateur.'; box.appendChild(w); }
+    const lay = document.createElement('div'); lay.className = 'row';
+    for (const [k, L] of Object.entries(LAYOUTS)) {
+      const b = document.createElement('button'); b.className = 'ghost' + (k === layout ? ' on' : ''); b.textContent = L.name;
+      b.onclick = () => { try { localStorage.setItem(kbKey, k); } catch (e) { } this.keyboard(); }; lay.appendChild(b);
+    }
+    box.appendChild(lay);
+    for (const tier of ['Débuter', 'Progresser', 'Maîtriser']) {
+      const h = document.createElement('h3'); h.textContent = tier; box.appendChild(h);
+      const g = document.createElement('div'); g.className = 'grid';
+      for (const l of TYPING_LESSONS.filter(x => x.tier === tier)) {
+        const b = document.createElement('button'), p = TypingProgress.get(l.id);
+        const keys = l.keys ? ' · touches ' + l.keys(layout).split('').join(' ') : '';
+        b.innerHTML = `${esc(l.name)}${this.stars(TypingProgress.stars(l.id))}<small>${p ? `record ${p.wpm} mots/min · précision ${Math.round(p.acc * 100)} %` : 'jamais joué'}${esc(keys)}</small>`;
+        b.onclick = () => { this.sel.typing = { lesson: l.id, layout }; this.sel.themes = []; this.sel.label = l.name; this.mode(); };
+        g.appendChild(b);
+      }
+      box.appendChild(g);
+    }
+    this.show('levels');
   },
   mixButton(themes, label, hint) {
     const b = document.createElement('button'); b.className = 'mix';
     b.innerHTML = `${esc(label)}<small>${esc(hint)}</small>`;
-    b.onclick = () => { this.sel.themes = themes.map(t => t.id); this.sel.label = label; this.mode(); };
+    b.onclick = () => { this.sel.themes = themes.map(t => t.id); this.sel.label = label; this.sel.typing = null; this.mode(); };
     return b;
   },
   // Thèmes d'une matière, rangés par rapport à l'année de l'élève
@@ -453,12 +496,17 @@ const UI = {
     this.show('carnet');
   },
   showOver() {
-    const G = Game, S = G.session, id = G.opts.themes.join('+') + ':' + G.opts.level, old = Save.best(id, G.score);
-    this.$('over-stats').innerHTML = `
+    const G = Game, S = G.session, T = G.typing ? G.typingEnd : null;
+    const id = (T ? 'kb:' + G.opts.typing.lesson : G.opts.themes.join('+')) + ':' + G.opts.level, old = Save.best(id, G.score);
+    this.$('over-stats').innerHTML = T ? `
+      <div><b>${G.score}</b>points</div><div><b>${T.wpm}</b>mots par minute</div><div><b>${Math.round(T.acc * 100)} %</b>précision</div>
+      <div><b>${G.typedOk || 0}</b>phrases réussies</div><div><b>${G.stage + 1}</b>biome${G.stage ? 's' : ''} · ${esc(G.biome.short)}</div><div><b>${G.meters}</b>mètres</div>` : `
       <div><b>${G.score}</b>points</div><div><b>${G.stage + 1}</b>biome${G.stage ? 's' : ''} · ${esc(G.biome.short)}</div><div><b>${G.meters}</b>mètres</div>
       <div><b>${S.right} / ${S.asked}</b>bonnes réponses</div><div><b>${G.caught} / ${G.caught + G.missedOrbs}</b>bonus attrapés</div>
       <div><b>${G.blasonsRun}</b>blason${G.blasonsRun > 1 ? 's' : ''} trouvé${G.blasonsRun > 1 ? 's' : ''}</div>`;
     const notes = [];
+    if (T && T.best) notes.push(`Nouveau record de vitesse : ${T.wpm} mots/min !`);
+    if (T && T.acc < .85) notes.push('La précision compte avant la vitesse : vise 90 % sans regarder le clavier');
     if (G.score > old) notes.push(old ? `Nouveau record ! (ancien : ${old})` : 'Premier record enregistré !'); else notes.push(`Record à battre : ${old}`);
     if (G.newBiomes) notes.push(`Nouveau biome découvert !`);
     if (S.learned) notes.push(`${S.learned} question${S.learned > 1 ? 's' : ''} retenue${S.learned > 1 ? 's' : ''} pour de bon`);
@@ -476,6 +524,7 @@ function boot() {
   const cv = document.getElementById('game');
   Profiles.load();
   Render.init(cv); Input.init(cv); UI.init();
+  Input.onChar = ch => Typing.onChar(ch);
   Input.onKey = code => {
     if (Game.state === 'play' && !Game.demo && Game.focusKey(code)) return;
     if (code === 'Escape' || code === 'KeyP') Game.togglePause();

@@ -37,7 +37,7 @@ const Render = {
     this.out.style.width = Math.floor(VIEW_W * cssS) + 'px'; this.out.style.height = Math.floor(VIEW_H * cssS) + 'px';
   },
   // texte en file d'attente, coordonnées dans l'espace 384×216
-  text(s, x, y, o = {}) { x += this.tdx || 0; this.texts.push({ s, x, y, size: o.size || 8, color: o.color || '#fff', align: o.align || 'center', stroke: o.stroke ?? '#10143a', maxW: o.maxW || 0, weight: o.weight || 'bold' }); },
+  text(s, x, y, o = {}) { x += this.tdx || 0; this.texts.push({ s, x, y, size: o.size || 8, runs: o.runs || null, color: o.color || '#fff', align: o.align || 'center', stroke: o.stroke ?? '#10143a', maxW: o.maxW || 0, weight: o.weight || 'bold' }); },
 
   /* ─── décors précalculés, un jeu par biome ─── */
   background(b) {
@@ -75,6 +75,7 @@ const Render = {
     for (const o of G.orbs) if (!o.done) this.orb(o);
     for (const b of G.blasons) if (!b.got) this.blason(b.x, b.y + Math.round(Math.sin(G.frame * .07 + b.idx) * 2), b.known ? .45 : 1, true);
     for (const e of G.enemies) if (!e.dead) this.enemy(e);
+    if (G.typing && G.state === "play" && Typing.target && !G.focus) this.typeBubble(Typing.target);
     for (const s of G.shots) { c.fillStyle = '#10143a'; c.fillRect(Math.round(s.x) - 1, Math.round(s.y) - 1, 8, 8); c.fillStyle = '#b87a3a'; c.fillRect(Math.round(s.x), Math.round(s.y), 6, 6); c.fillStyle = '#6b4020'; c.fillRect(Math.round(s.x), Math.round(s.y), 6, 2); }
     this.player();
     for (const p of FX.parts) { c.globalAlpha = Math.min(1, p.life / 8); c.fillStyle = p.color; c.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size); }
@@ -90,6 +91,12 @@ const Render = {
     o.textBaseline = 'middle';
     for (const t of this.texts) {
       o.font = `${t.weight} ${t.size * B}px 'Trebuchet MS', Calibri, 'Segoe UI', sans-serif`; o.textAlign = t.align;
+      if (t.runs) {   // texte en plusieurs couleurs (mode frappe : lettres tapées, lettre suivante, reste)
+        const ws = t.runs.map(r => o.measureText(r.s).width), tot = ws.reduce((a, b) => a + b, 0); let xx = t.align === 'center' ? t.x * B - tot / 2 : t.x * B;
+        o.textAlign = 'left'; o.lineJoin = 'round'; o.lineWidth = Math.max(2, B * 1.4); o.strokeStyle = t.stroke || '#10143a';
+        t.runs.forEach((r, i) => { o.strokeText(r.s, xx, t.y * B); o.fillStyle = r.color; o.fillText(r.s, xx, t.y * B); if (r.under) { o.fillStyle = r.color; o.fillRect(xx, t.y * B + t.size * B * .55, Math.max(ws[i], B * 3), Math.max(1, B * .6)); } xx += ws[i]; });
+        continue;
+      }
       const mw = t.maxW ? t.maxW * B : undefined;
       if (t.stroke) { o.lineJoin = 'round'; o.lineWidth = Math.max(2, B * 1.4); o.strokeStyle = t.stroke; o.strokeText(t.s, t.x * B, t.y * B, mw); }
       o.fillStyle = t.color; o.fillText(t.s, t.x * B, t.y * B, mw);
@@ -195,6 +202,7 @@ const Render = {
     const c = this.c, f = Game.focus;
     const a = f.phase === 'in' ? f.t / FOCUS.in : f.phase === 'out' ? 1 - f.t / FOCUS.out : 1;
     c.globalAlpha = .62 * a; c.fillStyle = '#060a20'; c.fillRect(0, 0, VIEW_W, VIEW_H); c.globalAlpha = 1;
+    if (a >= .5 && f.kind === 'type') return this.typeCard(f, a);
     if (a < .5) return;
     c.globalAlpha = a;
     const cx0 = Math.round((VIEW_W - 272) / 2), bx0 = cx0 + 14;   // carte centrée, quelle que soit la largeur de l'écran
@@ -224,6 +232,43 @@ const Render = {
       this.text((f.timeout ? 'Temps écoulé ! ' : '') + 'La bonne réponse : ' + f.it.a, VIEW_W / 2, f.it.why ? 186 : 196, { size: 8.5, maxW: 260, color: '#ffb0b0' });
       if (f.it.why) this.text(f.it.why, VIEW_W / 2, 198, { size: 6.5, maxW: 262, color: '#fff4c8', weight: 'normal', stroke: '' });
       if (f.t > 40) this.text('touche pour continuer', cx0 + 266, 16, { size: 5, align: 'right', color: '#6c7096', weight: 'normal', stroke: '' });
+    }
+    c.globalAlpha = 1;
+  },
+  // Mode frappe : le mot à taper, au-dessus de l'obstacle (lettres tapées en or, lettre suivante soulignée)
+  typeBubble(t) {
+    const c = this.c, G = Game, word = t.word, done = t.typed;
+    const wx = t.kind === 'enemy' ? t.e.x + t.e.w / 2 : t.x + 8, wy = (t.kind === 'enemy' ? t.e.y - 18 : Player.y - 20);
+    const w = Math.max(28, word.length * 7 + 12), x = Math.round(wx - w / 2), y = Math.round(wy - 9);
+    c.fillStyle = t.armed ? '#1f6b45' : Typing.flash > 0 ? '#7a2330' : '#10143a'; c.globalAlpha = .9; c.fillRect(x, y, w, 17); c.globalAlpha = 1;
+    c.fillStyle = t.armed ? '#8ff0b8' : '#F3BE31'; c.fillRect(x, y, w, 1); c.fillRect(x, y + 16, w, 1);
+    if (!t.armed) { c.fillStyle = '#F3BE31'; c.fillRect(Math.round(wx) - 2, y + 17, 4, 3); }   // petite flèche vers l'obstacle
+    const sx = wx - Math.round(G.camX) + FX.sx, sy = y + 8.5 - Math.round(G.camY) + FX.sy;
+    if (t.armed) this.text('✓ ' + word, sx, sy, { size: 9, color: '#8ff0b8' });
+    else this.text('', sx, sy, { size: 10, runs: [{ s: word.slice(0, done), color: '#F3BE31' }, { s: word.charAt(done), color: '#ffffff', under: true }, { s: word.slice(done + 1), color: '#9aa3c8' }].filter(r => r.s) });
+  },
+  // Mode frappe : défi de phrase quand on attrape un bonus
+  typeCard(f, a) {
+    const c = this.c, cx0 = Math.round((VIEW_W - 300) / 2);
+    c.globalAlpha = a;
+    c.fillStyle = '#1A2047'; c.fillRect(cx0, 30, 300, 150);
+    c.fillStyle = '#F3BE31'; c.fillRect(cx0, 30, 300, 1); c.fillRect(cx0, 179, 300, 1);
+    this.text('Défi de frappe · recopie la phrase', VIEW_W / 2, 44, { size: 7, color: '#b9c3e8', weight: 'normal', stroke: '' });
+    if (f.timeMax) {
+      const r = U.clamp(f.time / f.timeMax, 0, 1), col = r > .5 ? '#3fcf7a' : r > .25 ? '#F3BE31' : '#ff5a5a';
+      c.fillStyle = '#10143a'; c.fillRect(cx0 + 20, 54, 260, 4); c.fillStyle = col; c.fillRect(cx0 + 20, 54, Math.round(260 * r), 4);
+    }
+    const res = f.phase === 'result' || f.phase === 'out', t = f.text, d = f.typed;
+    c.fillStyle = Typing.flash > 0 && !res ? '#7a2330' : '#0f1640'; c.fillRect(cx0 + 12, 76, 276, 36);
+    this.text('', VIEW_W / 2, 94, { size: t.length > 34 ? 9 : 11, runs: [{ s: t.slice(0, d), color: '#F3BE31' }, { s: t.charAt(d) === ' ' ? '␣' : t.charAt(d), color: '#ffffff', under: true }, { s: t.slice(d + 1), color: '#9aa3c8' }].filter(r => r.s) });
+    if (!res) {
+      const next = t.charAt(d);
+      this.text(next === ' ' ? 'Touche suivante : espace' : 'Touche suivante : ' + next, VIEW_W / 2, 128, { size: 8, color: '#fff4c8' });
+      this.text(f.errs ? `${f.errs} erreur${f.errs > 1 ? 's' : ''} · regarde l’écran, pas le clavier` : 'Tape sans regarder le clavier', VIEW_W / 2, 146, { size: 6.5, color: '#9aa3c8', weight: 'normal', stroke: '' });
+    } else {
+      const ok = f.chosen === f.correct, pct = Math.round((f.acc || 0) * 100);
+      this.text(ok ? `Réussi !  +${f.pts}` : f.typed >= t.length ? 'Presque : vise 80 % de précision' : 'Temps écoulé', VIEW_W / 2, 130, { size: 11, color: ok ? '#8ff0b8' : '#ffb0b0' });
+      this.text(`Précision ${pct} %${f.cpm ? ` · ${f.cpm} mots/min` : ''}`, VIEW_W / 2, 150, { size: 8, color: '#fff4c8' });
     }
     c.globalAlpha = 1;
   },
@@ -269,6 +314,7 @@ const Render = {
       if (a > .5) { this.text('Biome ' + (G.stage + 1), VIEW_W / 2, 82, { size: 7, color: '#b9c3e8', weight: 'normal', stroke: '' }); this.text(G.biomeTitle(), VIEW_W / 2, 99, { size: 15, color: '#fff4c8' }); }
     } else if (G.intro > 0) this.text(G.intro > 40 ? 'Prêt ?' : 'Partez !', VIEW_W / 2, 100, { size: 20, color: '#fff4c8' });
     if (G.state === 'pause') { c.fillStyle = 'rgba(10,15,38,.55)'; c.fillRect(0, 0, VIEW_W, VIEW_H); }
+    if (G.typing) this.text(`${Typing.wpm()} mots/min · précision ${Math.round(Typing.acc() * 100)} %`, 8 + this.padL, VIEW_H - 8, { align: 'left', size: 6.5, color: '#fff4c8' });
     if (this.debug) this.text(`${Loop.fps} i/s · biome ${G.stage + 1} · difficulté ${G.diff.toFixed(2)} · vitesse ${Player.vx.toFixed(2)} · ${G.enemies.length} ennemis`, 6, VIEW_H - 8, { align: 'left', size: 6, weight: 'normal' });
   },
   iris() { // fondu en iris entre deux biomes (cercle qui se ferme sur le joueur, puis s'ouvre)

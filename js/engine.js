@@ -26,6 +26,7 @@ const Input = {
   presses: 0,           // appuis de saut non encore consommés par la logique
   clicks: [],           // clics / touchers, en coordonnées 384×216 (pour choisir une réponse)
   hover: null,          // position de la souris, en coordonnées 384×216
+  onChar: null, charMode: false,   // mode frappe : chaque caractère tapé est transmis au jeu
   onKey: null,          // rappel pour toutes les touches (menus, pause, choix 1-2-3…)
   _padPrev: false, _padStartPrev: false, _padUp: false, _padDn: false,
   init(target) {
@@ -34,6 +35,8 @@ const Input = {
     const typing = e => e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName);   // on tape son prénom : le jeu n'écoute pas
     addEventListener('keydown', e => {
       if (typing(e)) return;
+      // mode frappe : les lettres tapées vont au jeu (et pas au saut)
+      if (this.charMode && this.onChar && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key.length === 1 || e.key === 'Backspace')) { e.preventDefault(); if (!e.repeat) this.onChar(e.key); return; }
       if (JUMP.includes(e.code)) { e.preventDefault(); if (!e.repeat) { this.presses++; } this.keyHeld = true; }
       else if (e.code === 'ArrowDown' || e.code === 'KeyS') { e.preventDefault(); this.keyDown = true; }
       if (!e.repeat && this.onKey) this.onKey(e.code);
