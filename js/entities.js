@@ -122,7 +122,7 @@ const ENEMY_BASE = {
   v: { w: 10, h: 14, stomp: false },                // stalactite
 };
 function makeEnemy(ch, cx, cy) {
-  const d = { ...ENEMY_BASE[ch], ...(Game.biome.enemies[ch] || {}) }, bottom = (cy + 1) * TILE;
+  const d = { ...ENEMY_BASE[ch], ...((Gen.biome || Game.biome).enemies[ch] || {}) }, bottom = (cy + 1) * TILE;
   const air = ch === 'f' || ch === 'd';
   return { ch, ...d, x: cx * TILE + (ch === 'v' ? 3 : 1), y: air ? cy * TILE + 2 : ch === 'v' ? cy * TILE : bottom - d.h, baseY: cy * TILE + 2,
     vy: 0, on: false, dir: -1, t: 0, wait: 40 + (cx % 3) * 20, dead: false, squash: 0, state: 'idle', st: 0 };
@@ -200,7 +200,7 @@ function updateOrb(o) {
 }
 
 /* ─── Blasons cachés (3 par biome, placés aux endroits les plus difficiles) ─── */
-function makeBlason(cx, cy, idx) { return { x: cx * TILE + 2, y: cy * TILE + 1, w: 12, h: 14, idx, got: false, known: Carnet.has(Game.biome.id, idx) }; }
+function makeBlason(cx, cy, idx) { return { x: cx * TILE + 2, y: cy * TILE + 1, w: 12, h: 14, idx, got: false, bio: (Gen.biome || Game.biome).id, known: Carnet.has((Gen.biome || Game.biome).id, idx) }; }
 function updateBlason(b) {
   if (b.got) return;
   if (U.overlap(Player, { x: b.x - 2, y: b.y - 2, w: b.w + 4, h: b.h + 4 })) { b.got = true; Game.onBlason(b); }

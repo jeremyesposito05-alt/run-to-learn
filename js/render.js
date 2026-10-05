@@ -62,16 +62,62 @@ const Render = {
     for (let x = 0; x < VIEW_W; x += 2) { const i = Math.floor(((x + off) % r.period + r.period) % r.period), y = Math.round(r.h[i] - camY * par); c.fillRect(x, y, 2, VIEW_H - y); }
   },
 
+  /* ─── décor : ciel, deux crêtes, météo ; pendant un changement de biome, fondu de l'ancien vers le nouveau ─── */
+  scenery(cx, cy) {
+    const c = this.c, bl = Game.blend(), ease = t => { t = U.clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+    const layers = (b, aSky, aFar, aMid) => {
+      const bg = this.background(b), P = b.pal;
+      if (aSky > 0) { c.globalAlpha = aSky; c.drawImage(bg.sky, 0, 0); }
+      if (aFar > 0) { c.globalAlpha = aFar; this._drawRidge(bg.far, .12, P.far, cx, cy); }
+      if (aMid > 0) { c.globalAlpha = aMid; this._drawRidge(bg.mid, .3, P.mid, cx, cy); }
+      c.globalAlpha = 1;
+    };
+    if (!bl) { layers(Game.biome, 1, 1, 1); this.weather(Game.biome, 1, cx); return; }
+    // le lointain change d'abord, le plan proche ensuite : le paysage « arrive » pendant qu'on court
+    const p = bl.p;
+    layers(bl.from, 1, 1, 1);
+    layers(bl.to, ease(p * 1.3), ease(p * 1.5 - .2), ease(p * 1.8 - .45));
+    this.weather(bl.from, 1 - ease(p * 1.6 - .2), cx); this.weather(bl.to, ease(p * 1.6 - .3), cx);
+  },
+  // météo propre à chaque biome : flocons en montagne, feuilles en forêt (particules d'écran, sans mémoire)
+  weather(b, a, cx) {
+    if (a <= 0.02) return;
+    const c = this.c, f = Game.frame, leaves = b.id === 'foret';
+    c.globalAlpha = a * (leaves ? .9 : .75);
+    for (let i = 0; i < 26; i++) {
+      const sp = leaves ? .35 + (i % 4) * .08 : .45 + (i % 5) * .12, drift = leaves ? Math.sin(f * .03 + i) * 10 : Math.sin(f * .02 + i * 1.7) * 4;
+      const x = ((i * 97 + f * (leaves ? .5 : .25) - cx * .6) % (VIEW_W + 20) + VIEW_W + 20) % (VIEW_W + 20) - 10 + drift;
+      const y = ((i * 53 + f * sp) % (VIEW_H + 10)) - 5;
+      if (leaves) { c.fillStyle = i % 3 ? '#c8862e' : '#7fb04a'; c.fillRect(Math.round(x), Math.round(y), 2 + ((f >> 3) + i) % 2, 2); }
+      else { c.fillStyle = '#ffffff'; const s = i % 4 === 0 ? 2 : 1; c.fillRect(Math.round(x), Math.round(y), s, s); }
+    }
+    c.globalAlpha = 1;
+  },
+  // l'arche de la frontière : deux piliers, un linteau, une banderole au nom du biome qui commence
+  arch() {
+    const n = Game.next, b = Game.border; if (!n && !b) return;
+    const c = this.c, bio = n ? n.biome : Game.biome, P = bio.pal, x0 = (n ? n.x : b.x) + ARCH_DX - 24, gy = 12 * TILE, top = gy - 88;
+    const post = x => { c.fillStyle = '#10143a'; c.fillRect(x - 1, top - 1, 10, gy - top + 1); c.fillStyle = P.plank; c.fillRect(x, top, 8, gy - top); c.fillStyle = P.plankTop; c.fillRect(x, top, 2, gy - top); };
+    post(x0); post(x0 + 56);
+    c.fillStyle = '#10143a'; c.fillRect(x0 - 6, top - 9, 76, 12); c.fillStyle = P.plank; c.fillRect(x0 - 5, top - 8, 74, 10); c.fillStyle = P.plankTop; c.fillRect(x0 - 5, top - 8, 74, 2);
+    // banderole (accent doré) qui ondule un peu
+    const w = Math.sin(Game.frame * .08) * 1.5;
+    c.fillStyle = '#10143a'; c.fillRect(x0 + 2, top + 3, 60, 17 + Math.round(w)); c.fillStyle = '#F3BE31'; c.fillRect(x0 + 3, top + 3, 58, 1);
+    c.fillStyle = '#1A2047'; c.fillRect(x0 + 3, top + 4, 58, 15 + Math.round(w));
+    const sx = x0 + 32 - Math.round(Game.camX) + FX.sx, sy = top + 12 - Math.round(Game.camY) + FX.sy;
+    this.text(n ? 'Biome ' + (n.k + 1) : 'Biome ' + (Game.stage + 1), sx, sy - 3, { size: 4.5, color: '#b9c3e8', weight: 'normal', stroke: '' });
+    this.text(bio.short, sx, sy + 3, { size: 6.5, color: '#fff4c8', stroke: '' });
+  },
+
   /* ─── image complète ─── */
   frame() {
-    const c = this.c, G = Game, cx = Math.round(G.camX), cy = Math.round(G.camY), P = G.biome.pal, bg = this.background(G.biome);
+    const c = this.c, G = Game, cx = Math.round(G.camX), cy = Math.round(G.camY), P = G.biome.pal;
     this.texts.length = 0;
     c.save(); c.translate(FX.sx, FX.sy);
-    c.drawImage(bg.sky, 0, 0);
-    this._drawRidge(bg.far, .12, P.far, cx, cy);
-    this._drawRidge(bg.mid, .3, P.mid, cx, cy);
+    this.scenery(cx, cy);
     c.translate(-cx, -cy);
     this.tiles(cx, cy, P);
+    this.arch();
     for (const o of G.orbs) if (!o.done) this.orb(o);
     for (const b of G.blasons) if (!b.got) this.blason(b.x, b.y + Math.round(Math.sin(G.frame * .07 + b.idx) * 2), b.known ? .45 : 1, true);
     for (const e of G.enemies) if (!e.dead) this.enemy(e);
@@ -84,7 +130,6 @@ const Render = {
     if (this.debug) this.hitboxes();
     c.restore();
     this.hud();
-    this.iris();
     // agrandissement sans lissage, puis texte net par-dessus
     const o = this.o, B = this.B; o.imageSmoothingEnabled = false;
     o.drawImage(this.low, 0, 0, VIEW_W * B, VIEW_H * B);
@@ -107,6 +152,7 @@ const Render = {
     const c = this.c, x0 = Math.floor(camX / TILE) - 1, x1 = x0 + Math.ceil(VIEW_W / TILE) + 2;
     for (let tx = x0; tx <= x1; tx++) for (let ty = 0; ty < ROWS; ty++) {
       const t = World.tile(tx, ty); if (t === '.') continue;
+      const P = Game.bioAt(tx * TILE).pal;              // pendant un passage, chaque colonne garde les couleurs de son biome
       const X = tx * TILE, Y = ty * TILE;
       if (t === '#' || t === 'i') {
         const topOpen = !World.solid(tx, ty - 1), ice = t === 'i';
@@ -115,6 +161,14 @@ const Render = {
         if (!World.solid(tx + 1, ty)) { c.fillStyle = P.edgeR; c.fillRect(X + TILE - 1, Y, 1, TILE); }
         if (topOpen && !ice) { c.fillStyle = P.cap; c.fillRect(X, Y, TILE, 4); c.fillStyle = P.capShade; c.fillRect(X, Y + 4, TILE, 1); if ((tx * 7) % 3 === 0) { c.fillStyle = P.cap; c.fillRect(X + 5, Y + 5, 3, 2); } }
         if (ice) { c.fillStyle = '#ffffff'; c.fillRect(X, Y, TILE, 2); if ((tx + (Game.frame >> 4)) % 5 === 0) c.fillRect(X + 4, Y + 4, 5, 1); }
+      } else if (t === 'r') {                                  // obstacle naturel : rocher enneigé (montagne) ou souche (forêt)
+        const top = World.tile(tx, ty - 1) !== 'r', wood = Game.bioAt(X).id === 'foret';
+        c.fillStyle = '#10143a'; c.fillRect(X + 1, Y, 14, TILE);
+        c.fillStyle = wood ? '#7a5230' : '#6f7896'; c.fillRect(X + 2, Y, 12, TILE);
+        c.fillStyle = wood ? '#93683e' : '#8d97b6'; c.fillRect(X + 2, Y, 3, TILE);
+        c.fillStyle = wood ? '#5a3a20' : '#4f5876'; c.fillRect(X + 11, Y, 3, TILE);
+        if (top) { if (wood) { c.fillStyle = '#d8b07a'; c.fillRect(X + 2, Y, 12, 3); c.fillStyle = '#93683e'; c.fillRect(X + 6, Y + 1, 4, 1); c.fillStyle = '#4caf50'; c.fillRect(X + 1, Y + 3, 3, 2); }
+                   else { c.fillStyle = '#eef3ff'; c.fillRect(X + 1, Y, 14, 4); c.fillRect(X + 4, Y + 4, 4, 2); } }
       } else if (t === 't') {                                  // champignon-trampoline
         c.fillStyle = '#f1e6d0'; c.fillRect(X + 6, Y + 8, 4, 8);
         c.fillStyle = '#10143a'; c.fillRect(X, Y + 1, TILE, 8); c.fillStyle = '#d9412f'; c.fillRect(X + 1, Y + 2, TILE - 2, 6);
@@ -307,22 +361,17 @@ const Render = {
     if (G.focus) { this.focusCard(); return; }
     const b = G.banner;
     if (b && b.t > 0) { const a = Math.min(1, b.t / 12); c.globalAlpha = .8 * a; c.fillStyle = '#10143a'; c.fillRect(0, 44, VIEW_W, 22); c.globalAlpha = 1; this.text(b.text, VIEW_W / 2, 55, { size: 10, maxW: 370, color: b.color }); }
-    // carte-titre du biome à l'arrivée
-    if (G.biomeCard > 0 && !G.trans) {
-      const a = Math.min(1, G.biomeCard / 20, (200 - G.biomeCard) / 12); c.globalAlpha = .85 * a;
-      c.fillStyle = '#10143a'; c.fillRect(0, 70, VIEW_W, 44); c.fillStyle = '#F3BE31'; c.fillRect(0, 70, VIEW_W, 1); c.fillRect(0, 113, VIEW_W, 1); c.globalAlpha = 1;
-      if (a > .5) { this.text('Biome ' + (G.stage + 1), VIEW_W / 2, 82, { size: 7, color: '#b9c3e8', weight: 'normal', stroke: '' }); this.text(G.biomeTitle(), VIEW_W / 2, 99, { size: 15, color: '#fff4c8' }); }
-    } else if (G.intro > 0) this.text(G.intro > 40 ? 'Prêt ?' : 'Partez !', VIEW_W / 2, 100, { size: 20, color: '#fff4c8' });
+    // arrivée dans un biome : un bandeau léger sous le haut de l'écran (la course ne s'arrête pas)
+    if (G.biomeCard > 0) {
+      const a = Math.min(1, G.biomeCard / 20, (200 - G.biomeCard) / 12), slide = Math.round((1 - Math.min(1, (200 - G.biomeCard) / 14)) * -10);
+      const w = 200, x = Math.round((VIEW_W - w) / 2), y = 72 + slide;
+      c.globalAlpha = .82 * a; c.fillStyle = '#10143a'; c.fillRect(x, y, w, 26); c.globalAlpha = a; c.fillStyle = '#F3BE31'; c.fillRect(x, y + 25, w, 1); c.globalAlpha = 1;
+      if (a > .4) { this.text((G.firstVisit && G.stage ? 'Nouveau biome · ' : 'Biome ') + (G.stage + 1), VIEW_W / 2, y + 7, { size: 5.5, color: '#b9c3e8', weight: 'normal', stroke: '' }); this.text(G.biomeTitle(), VIEW_W / 2, y + 17, { size: 10, color: '#fff4c8' }); }
+    }
+    if (G.intro > 0) this.text(G.intro > 40 ? 'Prêt ?' : 'Partez !', VIEW_W / 2, 124, { size: 20, color: '#fff4c8' });
     if (G.state === 'pause') { c.fillStyle = 'rgba(10,15,38,.55)'; c.fillRect(0, 0, VIEW_W, VIEW_H); }
     if (G.typing) this.text(`${Typing.wpm()} mots/min · précision ${Math.round(Typing.acc() * 100)} %`, 8 + this.padL, VIEW_H - 8, { align: 'left', size: 6.5, color: '#fff4c8' });
     if (this.debug) this.text(`${Loop.fps} i/s · biome ${G.stage + 1} · difficulté ${G.diff.toFixed(2)} · vitesse ${Player.vx.toFixed(2)} · ${G.enemies.length} ennemis`, 6, VIEW_H - 8, { align: 'left', size: 6, weight: 'normal' });
-  },
-  iris() { // fondu en iris entre deux biomes (cercle qui se ferme sur le joueur, puis s'ouvre)
-    const T = Game.trans; if (!T) return;
-    const r = T.phase === 'out' ? 240 * (1 - T.t / 45) : 240 * (T.t / 40);
-    const c = this.c, px = Math.round(Player.cx - Game.camX), py = Math.round(Player.cy - Game.camY);
-    c.fillStyle = '#000'; c.beginPath(); c.rect(0, 0, VIEW_W, VIEW_H); c.arc(px, py, Math.max(0, r), 0, 6.283, true); c.fill('evenodd');
-    if (T.phase === 'out' && T.t > 20) this.text('Biome terminé !', VIEW_W / 2, VIEW_H / 2, { size: 14, color: '#8ff0b8' });
   },
   hitboxes() {
     const c = this.c; c.strokeStyle = '#00ff88'; c.lineWidth = 1;

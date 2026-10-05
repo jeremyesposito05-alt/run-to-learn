@@ -150,7 +150,7 @@ const CHUNKS = [
 const START_CHUNK = chunk(0, 'départ', ['..............................', '..............................', '##############################', '##############################']);
 
 // Cases : # sol · i glace (glisse) · t champignon-trampoline (solides) ; = plateforme · k branche fragile (traversables)
-const isSolid = t => t === '#' || t === 'i' || t === 't';
+const isSolid = t => t === '#' || t === 'i' || t === 't' || t === 'r';   // r : rocher / souche (obstacle naturel posé par le remplissage)
 const isOneWay = t => t === '=' || t === 'k';
 const ENTITY_CHARS = 'ehfsoObvad';
 
@@ -173,6 +173,10 @@ const World = {
     }
     this.end += ch.w;
   },
+  // coupe le monde déjà construit à partir de la colonne cx (changement de biome : le nouveau commence plus tôt)
+  cut(cx) { if (cx < this.end) { this.cols.length = Math.max(0, cx - this.base); this.end = cx; } },
+  // une colonne « sol plat » : on peut y raccorder n'importe quel morceau
+  plain(cx) { const c = this.cols[cx - this.base]; if (!c) return false; for (let y = 0; y < ROWS; y++) if (y >= ROWS - 2 ? !isSolid(c[y]) : c[y] !== '.') return false; return true; },
   trim(minCx) { while (this.base < minCx) { this.cols.shift(); this.base++; } },
 };
 

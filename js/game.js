@@ -11,9 +11,9 @@
    ══════════════════════════════════════════════════════════════════════════ */
 // drain : endurance perdue à chaque image (60 par seconde) — c'est le compte à rebours de la partie
 const LEVELS = {
-  n1: { label: 'Niveau 1', hint: 'Découverte · pas de chrono · plus lent', speed: 1.8, ramp: .6, timer: 0, perChar: 0, hard: 0, every: [1, 2], drain: .016 },
-  n2: { label: 'Niveau 2', hint: 'Chrono moyen · plus rapide', speed: 2.2, ramp: .9, timer: 9, perChar: .1, hard: .3, every: [1, 2], drain: .024 },
-  n3: { label: 'Niveau 3', hint: 'Chrono court · rapide · bonus difficiles', speed: 2.6, ramp: 1.1, timer: 5, perChar: .06, hard: .6, every: [1, 2], drain: .042 },
+  n1: { label: 'Niveau 1', hint: 'Découverte · pas de chrono · plus lent', speed: 1.8, ramp: .6, timer: 0, perChar: 0, hard: 0, every: [1, 2], drain: .016, base: 0, fill: .65 },
+  n2: { label: 'Niveau 2', hint: 'Chrono moyen · plus rapide', speed: 2.2, ramp: .9, timer: 9, perChar: .1, hard: .3, every: [1, 2], drain: .024, base: .2, fill: .7 },
+  n3: { label: 'Niveau 3', hint: 'Chrono court · rapide · bonus difficiles', speed: 2.6, ramp: 1.1, timer: 5, perChar: .06, hard: .6, every: [1, 2], drain: .042, base: .3, fill: .85 },
 };
 // Tous les chiffres d'équilibrage au même endroit
 const RULES = {
@@ -29,6 +29,8 @@ const RULES = {
 };
 // Les 3 blasons cachés d'un biome apparaissent dans ces morceaux (3e, 7e et 12e du biome)
 const BLASON_AT = [3, 7, 12];
+// L'arche du changement de biome : à 4 cases après la frontière (dans le seuil plat)
+const ARCH_DX = 4 * TILE;
 // Écran-question : descente vers l'arrêt, affichage du résultat, reprise (en images de 1/60 s)
 const FOCUS = { in: 18, resultOk: 50, resultKo: 130, resultWhy: 240, out: 14, lockInput: 14 };
 const FOCUS_BOX = i => ({ x: Math.round((VIEW_W - 244) / 2), y: 66 + i * 40, w: 244, h: 32 });
@@ -38,7 +40,7 @@ const Game = {
   camX: 0, camY: 0, frame: 0, intro: 0, diff: 0, mercy: 0,
   energy: 100, score: 0, stomps: 0, chain: 0, combo: 0, bestCombo: 0, streak: 0, wrongRow: 0, caught: 0, missedOrbs: 0,
   boost: 0, enemies: [], orbs: [], shots: [], blasons: [], banner: null, popups: [], focus: null, tAcc: 0, sinceOrb: 0, orbEvery: 2, _spots: [],
-  biome: BIOMES[0], biomeIdx: 0, stage: 0, biomeRight: 0, trans: null, biomeCard: 0, crumbles: new Map(), seed: 1,
+  biome: BIOMES[0], biomeIdx: 0, stage: 0, biomeRight: 0, biomeCard: 0, crumbles: new Map(), seed: 1,
 
   start(opts) {
     this.opts = opts; this.demo = !!opts.demo; this.level = LEVELS[opts.level] || LEVELS.n1;
@@ -48,26 +50,65 @@ const Game = {
     this.seed = (Date.now() & 0xffffff) | 1;
     this.session = Quiz.Session(opts.themes, this.seed ^ 0x5bd1e995, this.persist);
     Object.assign(this, { frame: 0, mercy: 0, energy: 100, score: 0, stomps: 0, chain: 0, combo: 0, bestCombo: 0, streak: 0, wrongRow: 0,
-      caught: 0, missedOrbs: 0, boost: 0, banner: null, popups: [], focus: null, tAcc: 0, stage: 0, trans: null, meters: 0,
+      caught: 0, missedOrbs: 0, boost: 0, banner: null, popups: [], focus: null, tAcc: 0, stage: 0, meters: 0,
       blasonsRun: 0, newBiomes: 0, typedOk: 0 });
     FX.reset(); Input.clear();
     this.enterBiome(0);
     if (this.typing && !this.demo) this.say('Tape le mot écrit au-dessus de chaque obstacle !', '#fff4c8', 220);
     this.state = 'play';
   },
-  // Construit un biome neuf : nouveau monde, nouveaux morceaux, nouveaux ennemis
+  // Construit le monde de départ (début de partie, aperçus). Les biomes suivants arrivent SANS coupure : voir queueBiome.
   enterBiome(k) {
-    if (k > 0) this.meters += Math.floor(Player.x / TILE);
     this.biomeIdx = k % BIOMES.length; this.biome = BIOMES[this.biomeIdx]; this.stage = k; this.biomeRight = 0;
-    Object.assign(this, { camX: 0, camY: 0, intro: 70, diff: 0, enemies: [], orbs: [], shots: [], blasons: [], sinceOrb: 0, orbEvery: 2, _spots: [], biomeCard: 200, chunkN: 0 });
+    Object.assign(this, { camX: 0, camY: 0, intro: 70, diff: 0, enemies: [], orbs: [], shots: [], blasons: [], sinceOrb: 0, orbEvery: 2, _spots: [], biomeCard: 200, chunkN: 0,
+      next: null, border: null, biomeX0: 0 });
     this.crumbles = new Map();
-    Typing.target = null; Typing.lastX = -1e9;   // nouveau biome : le monde repart de zéro, le repérage des obstacles aussi
+    Typing.target = null; Typing.lastX = -1e9;
     this.firstVisit = Carnet.seeBiome(this.biome.id); if (this.firstVisit && k > 0) this.newBiomes++;
     World.reset(); Gen.reset(this.seed + k * 7919, this.biome);
     this.extend();
     Player.reset(3 * TILE, 12 * TILE - Player.h);
   },
-  biomeTitle() { const lap = Math.floor(this.stage / BIOMES.length); return this.biome.name + (lap ? ' · ' + ['', 'II', 'III', 'IV', 'V'][Math.min(lap, 4)] : ''); },
+  /* ─── Changement de biome sans coupure ───
+     8 bonnes réponses : le générateur passe au biome suivant au bout du monde déjà construit.
+     Une arche marque la frontière ; le sol change sous les pieds, le décor se fond pendant qu'on court,
+     et c'est en passant sous l'arche que le biome change (récompense, bandeau). */
+  queueBiome() {
+    if (this.next) return;
+    const k = this.stage + 1, biome = BIOMES[k % BIOMES.length];
+    // le monde est construit 2,5 écrans en avance : on le coupe juste hors de l'écran, sur du sol plat, pour que l'arche arrive vite
+    for (let cx = Math.ceil((this.camX + VIEW_W) / TILE) + 2; cx < World.end - 1; cx++) if (World.plain(cx) && World.plain(cx - 1)) {
+      World.cut(cx); const lim = cx * TILE;
+      this.enemies = this.enemies.filter(e => e.x < lim); this.orbs = this.orbs.filter(o => o.x < lim); this.blasons = this.blasons.filter(b => b.x < lim);
+      break;
+    }
+    this.next = { k, biome, x: World.end * TILE };
+    Gen.reset(this.seed + k * 7919, biome); this.chunkN = 0;   // le morceau suivant est le seuil (plat), puis ceux du nouveau biome
+    Sound.boost(); this.say('Biome terminé ! Passe sous l’arche →', '#8ff0b8', 150);
+  },
+  crossBiome() {
+    const n = this.next; this.next = null;
+    this.border = { x: n.x, prev: this.biome };
+    this.biomeIdx = n.k % BIOMES.length; this.biome = n.biome; this.stage = n.k; this.biomeX0 = Player.x;
+    this.biomeRight = Math.max(0, this.biomeRight - RULES.biomeGoal);   // les bonnes réponses en plus comptent pour le biome suivant
+    this.energy = Math.min(100, this.energy + RULES.biomeReward);
+    this.firstVisit = Carnet.seeBiome(this.biome.id); if (this.firstVisit) this.newBiomes++;
+    this.biomeCard = 200; this.banner = null;
+    // la récompense file vers la jauge d'endurance, sans arrêter la course
+    const tx = this.camX + 40, ty = this.camY + 10;
+    for (let i = 0; i < 26; i++) { const x = Player.cx + (Math.random() - .5) * 20, y = Player.cy + (Math.random() - .5) * 20, T = 26 + (Math.random() * 14 | 0); FX.spawn(x, y, (tx - x) / T + Player.vx, (ty - y) / T, T, i % 3 ? '#F3BE31' : '#8ff0b8', 2, 0); }
+    FX.burst(Player.cx, Player.cy - 20, 18, '#fff4c8', 2, .05, 24);
+    Sound.announce(); setTimeout(() => Sound.good(), 120);
+  },
+  // Le biome d'une position du monde (pendant le passage, les deux se côtoient)
+  bioAt(x) { const n = this.next, b = this.border; return n ? (x >= n.x ? n.biome : this.biome) : b && x < b.x ? b.prev : this.biome; },
+  // Avancée du fondu entre les deux décors : 0 = ancien, 1 = nouveau
+  blend() {
+    const n = this.next, b = this.border; if (!n && !b) return null;
+    const bx = n ? n.x : b.x, p = U.clamp((this.camX + VIEW_W - bx) / (VIEW_W + 150), 0, 1);
+    return { from: n ? this.biome : b.prev, to: n ? n.biome : this.biome, p, x: bx };
+  },
+  biomeTitle(b = this.biome, stage = this.stage) { const lap = Math.floor(stage / BIOMES.length); return b.name + (lap ? ' · ' + ['', 'II', 'III', 'IV', 'V'][Math.min(lap, 4)] : ''); },
   runSpeed() {
     if (this.intro > 0) return 0;
     return (this.level.speed + Math.min(1, this.diff) * this.level.ramp + Math.min(this.stage, 6) * .1) * (this.boost > 0 ? 1.3 : 1) * (this.typing ? Typing.speedFactor() : 1);
@@ -91,8 +132,31 @@ const Game = {
         if (orbSpot) this.sinceOrb = 0;                     // pas d'emplacement valable : on réessaie au morceau suivant
         const [a, b] = this.level.every; this.orbEvery = U.int(Gen.r, a, b);
       }
+      this.fill(startCx, ch.w);
       const bi = BLASON_AT.indexOf(this.chunkN);
       if (bi >= 0 && !this.typing) this.placeBlason(startCx, ch.w, bi, orbSpot);   // en mode frappe, on ne pilote pas ses sauts : pas de blasons perchés
+    }
+  },
+  // Remplissage : sur une longue portion plate et vide, on pose un ennemi ou un obstacle naturel (rocher, souche…).
+  // Plus le niveau est haut, plus c'est fréquent ; les ennemis deviennent plus variés avec la difficulté.
+  fill(startCx, w) {
+    const r = Gen.r, runs = []; let s = -1;
+    for (let cx = startCx + 2; cx <= startCx + w - 2; cx++) {
+      if (cx < startCx + w - 2 && World.plain(cx)) { if (s < 0) s = cx; }
+      else { if (s >= 0 && cx - s >= 6) runs.push([s, cx]); s = -1; }
+    }
+    for (const [a, b] of runs) {
+      for (let n = b - a >= 14 ? 2 : 1, tries = 0; n > 0 && tries < 4; tries++) {
+        if (r() > this.level.fill) { n--; continue; }
+        const cx = U.int(r, a + 2, b - 3), row = ROWS - 3, d = this.diff;
+        const near = x => Math.abs(x - cx * TILE) < 3 * TILE;     // pas collé à un ennemi ni à un obstacle ; jamais dans l'élan d'un bonus (7 cases avant lui)
+        if (this.enemies.some(e => near(e.x)) || this.orbs.some(o => !o.done && o.x - cx * TILE > -2 * TILE && o.x - cx * TILE < 7 * TILE) || World.tile(cx - 2, row) !== '.' || World.tile(cx + 3, row) !== '.') continue;
+        n--;
+        const k = r();
+        if (k < .45) this.enemies.push(makeEnemy(d > .7 && r() < .3 ? 's' : d > .35 && r() < .4 ? 'h' : 'e', cx, row));
+        else if (k < .8) { World.setTile(cx, row, 'r'); World.setTile(cx, row - 1, 'r'); }        // rocher / souche : 2 cases, il faut sauter
+        else { World.setTile(cx, row, '^'); if (b - a > 8) World.setTile(cx + 1, row, '^'); }  // pics naturels (cristaux, ronces)
+      }
     }
   },
   // Blason caché : on prend l'emplacement le PLUS difficile du morceau (celui que le bonus n'a pas pris)
@@ -107,7 +171,7 @@ const Game = {
     if (s) this.blasons.push(makeBlason(s.cx, s.cy, idx));
   },
   onBlason(b) {
-    const r = Carnet.found(this.biome.id, b.idx);
+    const r = Carnet.found(b.bio || this.biome.id, b.idx);
     FX.burst(b.x + 6, b.y + 7, 26, '#F3BE31', 2.6, .03, 28); FX.burst(b.x + 6, b.y + 7, 12, '#ffffff', 1.8, 0, 20); FX.hitstop(4);
     [784, 988, 1175, 1568].forEach((f, i) => setTimeout(() => Sound.tone(f, .12, 'square', .045), i * 70));
     if (r.isNew || !this.persist) { this.blasonsRun++; this.score += 500; }
@@ -144,7 +208,6 @@ const Game = {
     Input.poll();
     if (this.state !== 'play') return;
     if (FX.freeze > 0) { FX.freeze--; return; }      // gel d'impact
-    if (this.trans) { this.updateTrans(); return; }
     if (this.focus) { this.updateFocus(); return; }
     this.simStep();
   },
@@ -171,8 +234,10 @@ const Game = {
     if (Player.blocked === 50 && !this.typing) this.say('Saute !  (contre un mur : saute encore pour rebondir)', '#fff4c8', 120);
 
     // difficulté : grandit avec la distance et à chaque biome franchi, baisse un peu après deux erreurs de suite
-    this.diff = U.clamp(this.stage * RULES.stageHarder + Player.x / 20000 + this.mercy, 0, 1.2);
+    this.diff = U.clamp(this.level.base + this.stage * RULES.stageHarder + (Player.x - this.biomeX0) / 12000 + this.mercy, 0, 1.2);
 
+    if (this.next && Player.x >= this.next.x + ARCH_DX) this.crossBiome();   // on passe sous l'arche
+    if (this.border && this.camX > this.border.x + 220) this.border = null;   // fondu terminé, l'ancien biome est sorti de l'écran
     this.camX = Math.max(0, Player.x - 104);
     this.camY += (U.clamp(Player.y < 36 ? Player.y - 36 : WORLD_H - VIEW_H, -40, WORLD_H - VIEW_H) - this.camY) * .1;
 
@@ -209,18 +274,6 @@ const Game = {
     this.energy -= RULES.missed;
     this.pop('Raté…', o.x + 7, o.y - 4, '#b9c3e8'); Sound.tone(330, .12, 'triangle', .04, -120);
   },
-  /* ─── Changement de biome : iris qui se ferme, nouveau monde, iris qui s'ouvre ─── */
-  startTransition() { this.trans = { phase: 'out', t: 0 }; Sound.boost(); },
-  updateTrans() {
-    const T = this.trans; T.t++;
-    if (T.phase === 'out' && T.t >= 45) {
-      this.enterBiome(this.stage + 1);
-      this.energy = Math.min(100, this.energy + RULES.biomeReward);
-      T.phase = 'in'; T.t = 0; Sound.announce();
-    } else if (T.phase === 'in' && T.t >= 40) this.trans = null;
-    FX.update();
-  },
-
   /* ─── Écran-question ─── */
   updateFocus() {
     const f = this.focus;
@@ -255,7 +308,7 @@ const Game = {
           Player.glow = 60; FX.burst(Player.cx, Player.cy, 22, '#F3BE31', 2.4, .04, 26); FX.burst(Player.cx, Player.cy, 10, '#ffffff', 1.6, 0, 18);
           this.pop('+' + RULES.correct + ' endurance', Player.cx, Player.y - 10, '#8ff0b8');
         }
-        if (this.biomeRight >= RULES.biomeGoal && this.energy > 0) this.startTransition();   // biome terminé !
+        if (this.biomeRight >= RULES.biomeGoal && this.energy > 0) this.queueBiome();   // biome terminé !
       }
     }
     FX.update();
@@ -542,8 +595,8 @@ function boot() {
   if (shot === 'apercu-transition') {
     UI.hideAll(); Game.start(demoThemes); Game.intro = 0;
     for (let i = 0; i < 200; i++) Game.update();
-    Game.startTransition(); for (let i = 0; i < 70; i++) Game.update();   // iris rouvert à moitié sur la forêt
-    Game.biomeCard = 150; Game.trans = null; FX.freeze = 1e9;
+    Game.queueBiome(); while (Game.next && Game.next.x - Player.x > 150) Game.update();   // l'arche en vue, le décor commence à changer
+    FX.freeze = 1e9;
   }
   if (shot === 'apercu' || shot === 'apercu-course') {
     UI.hideAll(); Game.start(demoThemes); if (foret) Game.enterBiome(1); Autopilot.reset(1);
